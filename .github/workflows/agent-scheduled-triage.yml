@@ -70,7 +70,12 @@ on:
     secrets:
       agent_gh_token:
         required: true
-      github_token:
+      default_github_token:
+        description: >-
+          Default GITHUB_TOKEN fallback. Optional — only used if
+          agent_gh_token is not provided. (Named `default_github_token`
+          because `github_token` is reserved by GitHub Actions and cannot
+          be declared in workflow_call secrets.)
         required: false
 
   schedule:
@@ -128,7 +133,7 @@ jobs:
           TODO_STATUS: ${{ inputs.todo_status }}
           BACKLOG_STATUS: ${{ inputs.backlog_status }}
           READY_STATUS: ${{ inputs.ready_status }}
-          GH_TOKEN: ${{ secrets.agent_gh_token || secrets.github_token }}
+          GH_TOKEN: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
           MAX: ${{ inputs.max_cards_per_run }}
         run: |
@@ -180,7 +185,7 @@ jobs:
         if: steps.list.outputs.count > 0
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.agent_gh_token || secrets.github_token }}
+          GH_TOKEN: ${{ secrets.agent_gh_token || secrets.default_github_token }}
         run: |
           set -euo pipefail
           jq -c '.[]' /tmp/ready.json | while read -r card; do

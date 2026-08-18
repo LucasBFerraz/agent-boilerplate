@@ -1,0 +1,10 @@
+# act configuration for the agent-boilerplate repo.
+# Kept minimal on purpose — these workflows call GitHub + Projects v2 APIs,
+# so any "real" run with `act` is a smoke test by design.
+
+# Use the medium runner (default), but pin a stable image so we don't get
+# surprise rebuilds. Override with ACT_RUNNER=large on a beefy box.
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+# Secrets file. Token values are placeholders — local runs are smoke only.
+--secret-file .secrets

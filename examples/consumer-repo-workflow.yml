@@ -35,7 +35,9 @@ jobs:
     secrets:
       agent_gh_token: ${{ secrets.AGENT_GH_TOKEN }}
       # agent_api_key: ${{ secrets.MAVIS_API_KEY }}
-      # github_token: ${{ secrets.GITHUB_TOKEN }}   # Optional fallback
+      # default_github_token: ${{ secrets.GITHUB_TOKEN }}   # Optional fallback
+      # (Named `default_github_token` because `github_token` is reserved
+      # by GitHub Actions and can't be declared in workflow_call secrets.)
 
   on-mention:
     uses: YOUR-ORG/ai-agent-boilerplate/.github/workflows/agent-discussion.yml@v0.1

@@ -21,6 +21,10 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
+# act (https://nektosact.com) — keep the config committed, never the secrets
+.secrets
+.secrets.*
+
 # Editor
 .vscode/
 .idea/

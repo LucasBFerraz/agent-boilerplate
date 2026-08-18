@@ -46,7 +46,12 @@ on:
         required: true
       agent_api_key:
         required: false
-      github_token:
+      default_github_token:
+        description: >-
+          Default GITHUB_TOKEN fallback. Optional — only used if
+          agent_gh_token is not provided. (Named `default_github_token`
+          because `github_token` is reserved by GitHub Actions and cannot
+          be declared in workflow_call secrets.)
         required: false
 
   issue_comment:
@@ -129,7 +134,7 @@ jobs:
         id: checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           fetch-depth: 1
 
       - name: Detect existing agent branch
@@ -181,7 +186,7 @@ jobs:
           agent: ${{ inputs.agent }}
           prompt_file: ${{ steps.prompt.outputs.prompt_file }}
           timeout_minutes: ${{ inputs.timeout_minutes }}
-          agent_token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          agent_token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
 
       - name: Reply on the thread
         if: always()
@@ -191,7 +196,7 @@ jobs:
           project_title: ${{ inputs.project_title }}
           project_owner: ${{ inputs.project_owner }}
           target_status: 'In Progress'
-          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           comment: |
             🤖 Agent run finished.
 

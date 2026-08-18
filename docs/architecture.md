@@ -124,7 +124,7 @@ A card's `Status` option is the agent's queue. The agent does **not** keep its o
 | Agent CLI | Its own API key (Anthropic, Mavis, …) | `secrets.AGENT_API_KEY` |
 | Git push | `contents: write` | Same `AGENT_GH_TOKEN` |
 
-The composite actions accept `secrets.agent_gh_token || secrets.github_token` so the boilerplate works on a `GITHUB_TOKEN` for comment/push and only requires a PAT for Projects v2 operations.
+The composite actions accept `secrets.agent_gh_token || secrets.default_github_token` so the boilerplate works on a `GITHUB_TOKEN` for comment/push and only requires a PAT for Projects v2 operations. (The fallback secret is named `default_github_token` because `github_token` is reserved by GitHub Actions and cannot be declared in `workflow_call` secrets.)
 
 ## What this isn't
 

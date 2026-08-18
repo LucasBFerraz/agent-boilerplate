@@ -39,7 +39,7 @@ The agent runs with real credentials in a real environment. This document spells
 |---|---|---|
 | `AGENT_GH_TOKEN` (Projects v2) | `repo`, `project`, `read:org` (classic) **or** Issues/PR/Contents/Projects: RW (fine-grained) | Required for `kanban-cli`. |
 | `MAVIS_API_KEY` (or equivalent) | API key from the agent vendor | Authenticates the agent. |
-| `GITHUB_TOKEN` (default) | None — left unset if PAT is used | The composite actions accept `secrets.agent_gh_token \|\| secrets.github_token`. |
+| `GITHUB_TOKEN` (default) | None — left unset if PAT is used | The composite actions accept `secrets.agent_gh_token \|\| secrets.default_github_token`. (Named `default_github_token` because `github_token` is reserved by GitHub Actions and cannot be declared in `workflow_call` secrets.) |
 
 **Don't** use a PAT with broader scope than the consumer repo. If you use a classic PAT, the blast radius is "every repo you can access" — prefer a fine-grained PAT or a GitHub App.
 

@@ -11,7 +11,15 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "kanban": "npm run --workspace=@boilerplate/kanban-cli build && node packages/kanban-cli/dist/index.js",
-    "lint": "echo \"(no linter configured at root — add per-package as needed)\""
+    "lint": "echo \"(no linter configured at root — add per-package as needed)\"",
+    "act:list": "act --list",
+    "act:dry": "act -n -W .github/workflows/agent-scheduled-triage.yml workflow_dispatch",
+    "act:dry:card": "act -n -W .github/workflows/agent-on-card.yml issues -e .github/act-events/issue-labeled.json",
+    "act:dry:discussion": "act -n -W .github/workflows/agent-discussion.yml issue_comment -e .github/act-events/issue-comment.json",
+    "act:dry:all": "npm run act:dry && npm run act:dry:card && npm run act:dry:discussion",
+    "act:smoke": "act -W .github/workflows/agent-scheduled-triage.yml workflow_dispatch",
+    "act:smoke:card": "act -W .github/workflows/agent-on-card.yml issues -e .github/act-events/issue-labeled.json",
+    "act:smoke:discussion": "act -W .github/workflows/agent-discussion.yml issue_comment -e .github/act-events/issue-comment.json"
   },
   "engines": {
     "node": ">=20.0.0"

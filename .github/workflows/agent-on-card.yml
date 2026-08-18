@@ -82,10 +82,12 @@ on:
           API key for the agent runtime (e.g. ANTHROPIC_API_KEY,
           MAVIS_API_KEY). Optional for some runtimes.
         required: false
-      github_token:
+      default_github_token:
         description: >-
-          Default github.token. Optional — only used if agent_gh_token is
-          not provided.
+          Default GITHUB_TOKEN fallback. Optional — only used if
+          agent_gh_token is not provided. (Named `default_github_token`
+          because `github_token` is reserved by GitHub Actions and cannot
+          be declared in workflow_call secrets.)
         required: false
 
   # Also allow direct trigger from a `issues` event for testing in the
@@ -173,7 +175,7 @@ jobs:
           project_owner: ${{ inputs.project_owner }}
           target_status: ${{ inputs.in_progress_status }}
           status_field_name: ${{ inputs.status_field_name }}
-          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           comment: '🤖 Agent picked this up. Tracking in workflow run ${{ github.run_id }}.'
           comment_once: 'true'
 
@@ -185,13 +187,13 @@ jobs:
           project_title: ${{ inputs.project_title }}
           project_owner: ${{ inputs.project_owner }}
           status_field_name: ${{ inputs.status_field_name }}
-          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
 
       - name: Checkout and prepare branch
         uses: ./.github/actions/checkout-and-prepare
         with:
           base_ref: ${{ inputs.base_ref }}
-          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           issue_number: ${{ needs.resolve.outputs.issue_number }}
           issue_title: ${{ steps.card.outputs.prompt }}
 
@@ -204,7 +206,7 @@ jobs:
           setup_action: ${{ inputs.custom_setup_action }}
           extra_args: ${{ inputs.agent_extra_args }}
           timeout_minutes: ${{ inputs.timeout_minutes }}
-          agent_token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          agent_token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
 
       - name: Move card to In Review
         if: always() && steps.agent.outputs.pr_url != ''
@@ -215,7 +217,7 @@ jobs:
           project_owner: ${{ inputs.project_owner }}
           target_status: ${{ inputs.in_review_status }}
           status_field_name: ${{ inputs.status_field_name }}
-          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           comment: |
             🤖 Agent finished. PR: ${{ steps.agent.outputs.pr_url }}
 
@@ -231,7 +233,7 @@ jobs:
           project_owner: ${{ inputs.project_owner }}
           target_status: ${{ inputs.in_progress_status }}
           status_field_name: ${{ inputs.status_field_name }}
-          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           comment: |
             ⚠️ Agent run failed. See workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           comment_once: 'true'

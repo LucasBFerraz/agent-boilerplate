@@ -1,0 +1,20 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 1,
+    "title": "[act smoke] test workflow run",
+    "body": "Smoke test for the @-mention workflow."
+  },
+  "comment": {
+    "body": "@agent-bot can you take a look at this?",
+    "user": {
+      "login": "local-act-test",
+      "type": "User"
+    }
+  },
+  "repository": {
+    "name": "agent-boilerplate",
+    "owner": { "login": "local-act-test" }
+  },
+  "sender": { "login": "local-act-test" }
+}

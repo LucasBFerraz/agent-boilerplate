@@ -1,0 +1,20 @@
+{
+  "action": "labeled",
+  "issue": {
+    "number": 1,
+    "title": "[act smoke] test workflow run",
+    "body": "Smoke test triggered locally with `act`. Replace this with a real issue to exercise the agent end-to-end.",
+    "state": "open",
+    "labels": [
+      { "name": "agent:ready" }
+    ]
+  },
+  "label": {
+    "name": "agent:ready"
+  },
+  "repository": {
+    "name": "agent-boilerplate",
+    "owner": { "login": "local-act-test" }
+  },
+  "sender": { "login": "local-act-test" }
+}
