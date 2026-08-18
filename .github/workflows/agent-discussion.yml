@@ -128,6 +128,12 @@ jobs:
           set -euo pipefail
           cp -R ./.boilerplate-src/.github ./
           cp -R ./.boilerplate-src/packages ./
+          # The downstream kanban-sync action runs `npm ci` to build
+          # @boilerplate/kanban-cli. It needs a root package.json +
+          # package-lock.json. Only seed them if the consumer doesn't
+          # already have one — never clobber an existing package.json.
+          [[ ! -f ./package.json     ]] && cp ./.boilerplate-src/package.json ./
+          [[ ! -f ./package-lock.json ]] && cp ./.boilerplate-src/package-lock.json ./
           rm -rf ./.boilerplate-src
 
       - name: Checkout the existing PR branch if any, or base_ref
