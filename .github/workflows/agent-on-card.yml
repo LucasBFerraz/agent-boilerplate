@@ -37,6 +37,15 @@ on:
         type: string
         required: false
         default: ''
+      issue_number:
+        description: >-
+          Issue number to act on. Required when this workflow is invoked
+          via workflow_dispatch (manual run). For the `issues` trigger
+          the number is read from the event payload, so this input is
+          ignored.
+        type: string
+        required: false
+        default: ''
       status_field_name:
         description: 'Name of the Status field.'
         type: string
