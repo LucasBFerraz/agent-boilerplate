@@ -109,7 +109,13 @@ jobs:
       - name: Copy boilerplate
         run: |
           set -euo pipefail
+          # The kanban-cli install step (below) needs the root package.json
+          # and package-lock.json to run `npm ci`. Without them, npm ci
+          # fails with EUSAGE ("can only install with an existing
+          # package-lock.json"). Bring them along with the packages.
           cp -R ./.boilerplate-src/packages ./
+          [[ ! -f ./package.json     ]] && cp ./.boilerplate-src/package.json ./
+          [[ ! -f ./package-lock.json ]] && cp ./.boilerplate-src/package-lock.json ./
           rm -rf ./.boilerplate-src
 
       - name: Set up Node
