@@ -1,0 +1,19 @@
+{
+  "name": "ai-agent-boilerplate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Language-agnostic boilerplate for AI coding agents in GitHub Actions, with GitHub Projects v2 Kanban integration.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "kanban": "npm run --workspace=@boilerplate/kanban-cli build && node packages/kanban-cli/dist/index.js",
+    "lint": "echo \"(no linter configured at root — add per-package as needed)\""
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

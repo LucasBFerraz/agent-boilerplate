@@ -1,0 +1,200 @@
+name: 'Agent on @-mention (reusable)'
+
+# Reusable workflow. Trigger contract:
+#   - Someone comments on an issue/PR/discussion mentioning the agent bot
+#     (default: @agent-bot[bot]).
+#
+# What it does:
+#   1. Verify the comment mentions the bot and is not from the bot itself.
+#   2. Resolve the issue number.
+#   3. Run the agent with the comment body as additional context.
+#   4. Reply on the same thread with the result.
+#
+# NOTE: This workflow does NOT move the kanban card by default — the
+# `agent-on-card` workflow owns card transitions. This one is for
+# conversational / follow-up work on the same branch.
+
+on:
+  workflow_call:
+    inputs:
+      agent:
+        type: string
+        required: false
+        default: 'mavis'
+      project_title:
+        type: string
+        required: true
+      project_owner:
+        type: string
+        required: false
+        default: ''
+      bot_mention:
+        description: 'Exact mention string the agent listens to (e.g. @agent-bot[bot]).'
+        type: string
+        required: false
+        default: '@agent-bot'
+      base_ref:
+        type: string
+        required: false
+        default: 'main'
+      timeout_minutes:
+        type: number
+        required: false
+        default: 15
+    secrets:
+      agent_gh_token:
+        required: true
+      agent_api_key:
+        required: false
+      github_token:
+        required: false
+
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: agent-discussion-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve mention
+    runs-on: ubuntu-latest
+    outputs:
+      issue_number: ${{ steps.get.outputs.issue_number }}
+      comment_body: ${{ steps.get.outputs.comment_body }}
+      skip: ${{ steps.get.outputs.skip }}
+    steps:
+      - name: Validate and extract
+        id: get
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PAYLOAD_PATH: ${{ github.event_path }}
+          BOT_MENTION: ${{ inputs.bot_mention }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" != "issue_comment" ]]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          comment_body="$(jq -r '.comment.body' "${EVENT_PAYLOAD_PATH}")"
+          sender="$(jq -r '.comment.user.login' "${EVENT_PAYLOAD_PATH}")"
+          sender_type="$(jq -r '.comment.user.type // "User"' "${EVENT_PAYLOAD_PATH}")"
+
+          # Don't reply to ourselves
+          if [[ "${sender_type}" == "Bot" || "${sender}" == *"[bot]" ]]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          # Must mention the bot
+          if ! grep -qF "${BOT_MENTION}" <<< "${comment_body}"; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          issue_number="$(jq -r '.issue.number' "${EVENT_PAYLOAD_PATH}")"
+          echo "issue_number=${issue_number}" >> "${GITHUB_OUTPUT}"
+          echo "comment_body=${comment_body}" >> "${GITHUB_OUTPUT}"
+          echo "skip=false" >> "${GITHUB_OUTPUT}"
+
+  run:
+    name: Run agent on mention
+    needs: resolve
+    if: needs.resolve.outputs.skip != 'true' && needs.resolve.outputs.issue_number != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes + 5 }}
+    steps:
+      - name: Check out boilerplate
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          path: ./.boilerplate-src
+
+      - name: Copy boilerplate into workspace
+        run: |
+          set -euo pipefail
+          cp -R ./.boilerplate-src/.github ./
+          cp -R ./.boilerplate-src/packages ./
+          rm -rf ./.boilerplate-src
+
+      - name: Checkout the existing PR branch if any, or base_ref
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          fetch-depth: 1
+
+      - name: Detect existing agent branch
+        id: branch
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ needs.resolve.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          branch_name="$(git ls-remote --heads origin "agent/issue-${ISSUE_NUMBER}-*" \
+            | awk '{print $2}' | sed 's@refs/heads/@@' | head -n1 || true)"
+          if [[ -n "${branch_name}" ]]; then
+            git fetch origin "${branch_name}" --depth=1
+            git checkout "${branch_name}"
+          else
+            git fetch origin "${{ inputs.base_ref }}" --depth=1
+            git checkout -b "agent/issue-${ISSUE_NUMBER}-mention" "origin/${{ inputs.base_ref }}"
+          fi
+          echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Build prompt
+        id: prompt
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ needs.resolve.outputs.issue_number }}
+          COMMENT: ${{ needs.resolve.outputs.comment_body }}
+        run: |
+          set -euo pipefail
+          cat > .agent-prompt.md <<EOF
+          You are responding to a follow-up comment on issue #${ISSUE_NUMBER}.
+
+          The comment is:
+
+          > ${COMMENT}
+
+          Update the existing branch to address this comment. Commit + push
+          changes; the existing PR will be updated. If the comment asks for
+          clarification rather than code changes, reply by editing the PR
+          description.
+
+          Repo rules: see AGENTS.md.
+          EOF
+          echo "prompt_file=$(pwd)/.agent-prompt.md" >> "${GITHUB_OUTPUT}"
+
+      - name: Run agent
+        id: agent
+        uses: ./.github/actions/agent-runner
+        with:
+          agent: ${{ inputs.agent }}
+          prompt_file: ${{ steps.prompt.outputs.prompt_file }}
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          agent_token: ${{ secrets.agent_gh_token || secrets.github_token }}
+
+      - name: Reply on the thread
+        if: always()
+        uses: ./.github/actions/kanban-sync
+        with:
+          issue_number: ${{ needs.resolve.outputs.issue_number }}
+          project_title: ${{ inputs.project_title }}
+          project_owner: ${{ inputs.project_owner }}
+          target_status: 'In Progress'
+          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          comment: |
+            🤖 Agent run finished.
+
+            ${{ steps.agent.outputs.summary || 'No summary.' }}
+
+            ${{ steps.agent.outputs.pr_url && format('PR: {0}', steps.agent.outputs.pr_url) || 'No PR was opened/updated.' }}

@@ -1,0 +1,224 @@
+name: 'Agent runner (pluggable)'
+description: >-
+  Run an AI coding agent against the current branch in a non-interactive
+  mode. The agent must respect AGENTS.md and the contract documented in
+  the README of this action. The agent is expected to commit + push the
+  current branch and print a single JSON line with its result.
+
+inputs:
+  agent:
+    description: >-
+      Which agent runtime to invoke. One of: claude, copilot, mavis,
+      custom. For "custom", you must also set `setup_action`.
+    required: true
+    default: 'mavis'
+  prompt:
+    description: >-
+      Prompt to send to the agent. If empty, the agent will read
+      `prompt_file`. The boilerplate's reusable workflows inject the
+      synthesized prompt from the issue + card.
+    required: false
+    default: ''
+  prompt_file:
+    description: >-
+      Path to a file containing the prompt. Used when `prompt` is empty.
+    required: false
+    default: ''
+  setup_action:
+    description: >-
+      Path to a custom setup action (for `agent: custom`). Ignored
+      otherwise.
+    required: false
+    default: ''
+  agent_cli:
+    description: >-
+      Override the CLI binary name (default: derived from `agent`).
+    required: false
+    default: ''
+  extra_args:
+    description: >-
+      Extra args passed verbatim to the agent CLI. Use this to pass
+      model names, temperature, etc.
+    required: false
+    default: ''
+  timeout_minutes:
+    description: 'Hard timeout for the agent invocation.'
+    required: false
+    default: '20'
+  working_directory:
+    description: >-
+      Run the agent from this directory. Default: ${{ github.workspace }}.
+    required: false
+    default: ''
+  agent_token:
+    description: >-
+      Token the agent should use for git push. Default: GITHUB_TOKEN.
+    required: false
+    default: ${{ github.token }}
+  result_file:
+    description: >-
+      File the agent should write its final JSON result to. Default:
+      ${{ github.workspace }}/agent-result.json.
+    required: false
+    default: ''
+
+outputs:
+  pr_url:
+    description: 'PR URL the agent opened (from its JSON result).'
+    value: ${{ steps.run.outputs.pr_url }}
+  summary:
+    description: 'Short summary the agent returned.'
+    value: ${{ steps.run.outputs.summary }}
+  files_changed:
+    description: 'Comma-separated list of files the agent changed.'
+    value: ${{ steps.run.outputs.files_changed }}
+  result_json:
+    description: 'The full JSON result the agent printed.'
+    value: ${{ steps.run.outputs.result_json }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up the chosen agent CLI
+      uses: ${{ inputs.agent == 'custom' && inputs.setup_action || format('./setup-agent-{0}', inputs.agent) }}
+      with:
+        token: ${{ inputs.agent_token }}
+
+    - name: Prepare prompt + working directory
+      id: prep
+      shell: bash
+      env:
+        PROMPT: ${{ inputs.prompt }}
+        PROMPT_FILE: ${{ inputs.prompt_file }}
+        WORKDIR: ${{ inputs.working_directory }}
+        RESULT_FILE: ${{ inputs.result_file }}
+        AGENT_TOKEN: ${{ inputs.agent_token }}
+      run: |
+        set -euo pipefail
+        workdir="${WORKDIR:-${GITHUB_WORKSPACE}}"
+        cd "${workdir}"
+
+        # Pick the prompt source
+        if [[ -n "${PROMPT}" ]]; then
+          echo "${PROMPT}" > .agent-prompt.md
+        elif [[ -n "${PROMPT_FILE}" && -f "${PROMPT_FILE}" ]]; then
+          cp "${PROMPT_FILE}" .agent-prompt.md
+        else
+          echo "::error::agent-runner: neither prompt nor prompt_file provided" >&2
+          exit 1
+        fi
+
+        result_file="${RESULT_FILE:-${workdir}/agent-result.json}"
+        echo "result_file=${result_file}" >> "${GITHUB_OUTPUT}"
+        echo "prompt_file=${workdir}/.agent-prompt.md" >> "${GITHUB_OUTPUT}"
+
+    - name: Run agent
+      id: run
+      shell: bash
+      env:
+        AGENT: ${{ inputs.agent }}
+        AGENT_CLI: ${{ inputs.agent_cli }}
+        PROMPT_FILE: ${{ steps.prep.outputs.prompt_file }}
+        RESULT_FILE: ${{ steps.prep.outputs.result_file }}
+        EXTRA_ARGS: ${{ inputs.extra_args }}
+        WORKDIR: ${{ inputs.working_directory }}
+        AGENT_TOKEN: ${{ inputs.agent_token }}
+        GH_TOKEN: ${{ inputs.agent_token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        workdir="${WORKDIR:-${GITHUB_WORKSPACE}}"
+        cd "${workdir}"
+
+        cli="${AGENT_CLI:-${AGENT}}"
+        case "${AGENT}" in
+          claude)
+            # Claude Code: non-interactive, pipe prompt on stdin.
+            set +e
+            "${cli}" --print --dangerously-skip-permissions \
+              --output-format json \
+              < "${PROMPT_FILE}" \
+              > "${RESULT_FILE}.log" 2>&1
+            rc=$?
+            set -e
+            if [[ $rc -ne 0 ]]; then
+              echo "::error::claude exited with ${rc}. Log:" >&2
+              cat "${RESULT_FILE}.log" >&2
+              exit $rc
+            fi
+            # Claude Code emits its own JSON; we wrap it into our contract.
+            jq '{pr_url: .pr_url // "", summary: .summary // .result // "", files_changed: (.files_changed // [])}' \
+              "${RESULT_FILE}.log" > "${RESULT_FILE}"
+            ;;
+          copilot)
+            # GitHub Copilot CLI: pass prompt as the request.
+            set +e
+            "${cli}" suggest -t code --target "${workdir}" \
+              < "${PROMPT_FILE}" \
+              > "${RESULT_FILE}.log" 2>&1
+            rc=$?
+            set -e
+            if [[ $rc -ne 0 ]]; then
+              echo "::error::copilot exited with ${rc}. Log:" >&2
+              cat "${RESULT_FILE}.log" >&2
+              exit $rc
+            fi
+            jq -n --arg summary "$(cat "${RESULT_FILE}.log")" \
+              '{pr_url: "", summary: $summary, files_changed: []}' > "${RESULT_FILE}"
+            ;;
+          mavis|*)
+            # Mavis / MiniMax Code: thin wrapper. We assume `mavis run` is
+            # available; see ./setup-agent-mavis for installation.
+            set +e
+            "${cli}" run \
+              --non-interactive \
+              --prompt-file "${PROMPT_FILE}" \
+              --result-file "${RESULT_FILE}" \
+              ${EXTRA_ARGS} \
+              > "${RESULT_FILE}.log" 2>&1
+            rc=$?
+            set -e
+            if [[ $rc -ne 0 ]]; then
+              echo "::error::mavis exited with ${rc}. Log:" >&2
+              cat "${RESULT_FILE}.log" >&2
+              exit $rc
+            fi
+            ;;
+        esac
+
+        # Validate JSON
+        if ! jq -e . "${RESULT_FILE}" >/dev/null 2>&1; then
+          echo "::error::agent did not produce valid JSON at ${RESULT_FILE}" >&2
+          cat "${RESULT_FILE}" >&2
+          exit 1
+        fi
+
+        pr_url="$(jq -r '.pr_url // ""' "${RESULT_FILE}")"
+        summary="$(jq -r '.summary // ""' "${RESULT_FILE}")"
+        files_changed="$(jq -r '.files_changed // [] | join(",")' "${RESULT_FILE}")"
+
+        echo "pr_url=${pr_url}" >> "${GITHUB_OUTPUT}"
+        echo "summary=${summary}" >> "${GITHUB_OUTPUT}"
+        echo "files_changed=${files_changed}" >> "${GITHUB_OUTPUT}"
+
+        # Embed raw JSON as a multiline output
+        raw="$(cat "${RESULT_FILE}")"
+        echo "result_json<<EOF" >> "${GITHUB_OUTPUT}"
+        echo "${raw}" >> "${GITHUB_OUTPUT}"
+        echo "EOF" >> "${GITHUB_OUTPUT}"
+
+        # Upload log as an artifact for debugging
+        mkdir -p "${workdir}/.agent-artifacts"
+        cp "${RESULT_FILE}.log" "${workdir}/.agent-artifacts/" || true
+        cp "${RESULT_FILE}" "${workdir}/.agent-artifacts/" || true
+
+    - name: Upload agent artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: agent-runner-${{ inputs.agent }}-${{ github.run_id }}
+        path: |
+          ${{ steps.prep.outputs.result_file }}
+          ${{ steps.prep.outputs.result_file }}.log
+          .agent-prompt.md
+        if-no-files-found: warn

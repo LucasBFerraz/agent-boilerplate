@@ -1,0 +1,33 @@
+name: 'Setup — GitHub Copilot CLI'
+description: >-
+  Install the GitHub Copilot CLI and authenticate with the supplied token.
+  The token must have Copilot access enabled for the user.
+
+inputs:
+  token:
+    description: >-
+      GitHub token with Copilot access. Defaults to the workflow's
+      GITHUB_TOKEN (note: Copilot requires a PAT or App token, not the
+      default GITHUB_TOKEN).
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Copilot CLI
+      shell: bash
+      run: |
+        set -euo pipefail
+        npm install -g @github/copilot-cli
+        copilot --version
+
+    - name: Authenticate
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        COPILOT_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        # The Copilot CLI uses GH_TOKEN for auth.
+        echo "GH_TOKEN length: ${#GH_TOKEN}"
+        gh auth status

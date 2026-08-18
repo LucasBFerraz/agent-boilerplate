@@ -1,0 +1,123 @@
+name: 'Checkout and prepare branch'
+description: >-
+  Check out the repo, derive a per-issue branch name, and create it from the
+  base ref. Outputs `branch`, `issue_number`, and `base_ref` for downstream
+  steps.
+
+inputs:
+  base_ref:
+    description: 'Branch to fork from (default: main).'
+    required: false
+    default: 'main'
+  token:
+    description: >-
+      Token used to checkout the repo and create the branch. Must have
+      `contents: write` on the target repo.
+    required: false
+    default: ${{ github.token }}
+  branch_prefix:
+    description: 'Prefix for the agent branch (default: agent).'
+    required: false
+    default: 'agent'
+  issue_number:
+    description: >-
+      Issue number to derive the branch slug from. If omitted, the action
+      reads it from the `issue` event payload.
+    required: false
+    default: ''
+  issue_title:
+    description: >-
+      Issue title used to slug-ify the branch. If omitted, the action will
+      try to read it from the event payload, then from the GitHub API.
+    required: false
+    default: ''
+
+outputs:
+  branch:
+    description: 'The created branch name.'
+    value: ${{ steps.prepare.outputs.branch }}
+  issue_number:
+    description: 'The issue number we branched from.'
+    value: ${{ steps.prepare.outputs.issue_number }}
+  base_ref:
+    description: 'The base ref we forked from.'
+    value: ${{ steps.prepare.outputs.base_ref }}
+  issue_title:
+    description: 'The (sanitized) issue title used in the branch name.'
+    value: ${{ steps.prepare.outputs.issue_title }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ inputs.token }}
+        fetch-depth: 1
+
+    - name: Resolve issue context
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
+        INPUT_ISSUE_TITLE: ${{ inputs.issue_title }}
+        EVENT_NAME: ${{ github.event_name }}
+        EVENT_PAYLOAD_PATH: ${{ github.event_path }}
+      run: |
+        set -euo pipefail
+
+        # 1. Resolve issue number
+        issue_number=""
+        if [[ -n "${INPUT_ISSUE_NUMBER}" ]]; then
+          issue_number="${INPUT_ISSUE_NUMBER}"
+        elif [[ "${EVENT_NAME}" == "issues" ]]; then
+          issue_number="$(jq -r '.issue.number // empty' "${EVENT_PAYLOAD_PATH}")"
+        elif [[ "${EVENT_NAME}" == "issue_comment" ]]; then
+          issue_number="$(jq -r '.issue.number // empty' "${EVENT_PAYLOAD_PATH}")"
+        elif [[ "${EVENT_NAME}" == "pull_request" ]]; then
+          issue_number=""
+        elif [[ "${EVENT_NAME}" == "discussion" || "${EVENT_NAME}" == "discussion_comment" ]]; then
+          issue_number=""
+        fi
+
+        # 2. Resolve issue title (slug source)
+        issue_title="${INPUT_ISSUE_TITLE}"
+        if [[ -z "${issue_title}" && -n "${issue_number}" ]]; then
+          issue_title="$(gh issue view "${issue_number}" --json title -q .title)"
+        fi
+        if [[ -z "${issue_title}" ]]; then
+          # Fall back to a timestamped placeholder
+          issue_title="agent-task-$(date -u +%Y%m%d%H%M%S)"
+        fi
+
+        # 3. Slugify: lowercase, non-alnum -> '-', trim, max 50 chars
+        slug="$(printf '%s' "${issue_title}" \
+          | tr '[:upper:]' '[:lower:]' \
+          | sed -E 's/[^a-z0-9]+/-/g' \
+          | sed -E 's/^-+|-+$//g' \
+          | cut -c1-50)"
+
+        echo "issue_number=${issue_number}" >> "${GITHUB_OUTPUT}"
+        echo "issue_title=${issue_title}" >> "${GITHUB_OUTPUT}"
+        echo "slug=${slug}" >> "${GITHUB_OUTPUT}"
+
+    - name: Create branch
+      id: prepare
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base_ref }}
+        BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+        ISSUE_NUMBER: ${{ steps.resolve.outputs.issue_number }}
+        SLUG: ${{ steps.resolve.outputs.slug }}
+        TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        git fetch origin "${BASE_REF}" --depth=1
+        git checkout -b "${BRANCH_PREFIX}/issue-${ISSUE_NUMBER:-na}-${SLUG}" "origin/${BASE_REF}"
+
+        branch="${BRANCH_PREFIX}/issue-${ISSUE_NUMBER:-na}-${SLUG}"
+        echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+        echo "base_ref=${BASE_REF}" >> "${GITHUB_OUTPUT}"
+        echo "issue_number=${ISSUE_NUMBER}" >> "${GITHUB_OUTPUT}"
+        echo "issue_title=${SLUG}" >> "${GITHUB_OUTPUT}"

@@ -1,0 +1,26 @@
+{
+  "name": "@boilerplate/kanban-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin CLI over the GitHub Projects v2 GraphQL API. Used by the boilerplate's reusable workflows.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "kanban": "dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}

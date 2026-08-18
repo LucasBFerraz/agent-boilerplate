@@ -1,0 +1,237 @@
+name: 'Agent on card (reusable)'
+
+# Reusable workflow: invoked by consumer repos with `uses: ./.../agent-on-card.yml`
+# or `uses: owner/repo/.github/workflows/agent-on-card.yml@ref`.
+#
+# Trigger contract:
+#   - issues labeled with `agent_trigger_label` (default: agent:ready) and
+#     that live on `project_title` in the `Todo` column.
+#
+# What it does:
+#   1. Read the issue + its project card.
+#   2. Move the card to "In Progress" (idempotent).
+#   3. Checkout + branch.
+#   4. Run the agent.
+#   5. Open (or update) the PR.
+#   6. Move the card to "In Review".
+
+on:
+  workflow_call:
+    inputs:
+      agent:
+        description: 'Agent runtime to invoke.'
+        type: string
+        required: false
+        default: 'mavis'
+      agent_extra_args:
+        description: 'Extra args passed to the agent CLI.'
+        type: string
+        required: false
+        default: ''
+      project_title:
+        description: 'Project v2 board title.'
+        type: string
+        required: true
+      project_owner:
+        description: 'Project owner (user or org). Defaults to repo owner.'
+        type: string
+        required: false
+        default: ''
+      status_field_name:
+        description: 'Name of the Status field.'
+        type: string
+        required: false
+        default: 'Status'
+      in_progress_status:
+        description: 'Status name for "In Progress".'
+        type: string
+        required: false
+        default: 'In Progress'
+      in_review_status:
+        description: 'Status name for "In Review".'
+        type: string
+        required: false
+        default: 'In Review'
+      agent_trigger_label:
+        description: 'Issue label that triggers the agent.'
+        type: string
+        required: false
+        default: 'agent:ready'
+      base_ref:
+        description: 'Base branch to fork from.'
+        type: string
+        required: false
+        default: 'main'
+      timeout_minutes:
+        description: 'Agent invocation timeout.'
+        type: number
+        required: false
+        default: 20
+      custom_setup_action:
+        description: 'Custom setup action for `agent: custom`.'
+        type: string
+        required: false
+        default: ''
+    secrets:
+      agent_gh_token:
+        description: >-
+          Token with Projects v2 access + push rights. Required.
+        required: true
+      agent_api_key:
+        description: >-
+          API key for the agent runtime (e.g. ANTHROPIC_API_KEY,
+          MAVIS_API_KEY). Optional for some runtimes.
+        required: false
+      github_token:
+        description: >-
+          Default github.token. Optional — only used if agent_gh_token is
+          not provided.
+        required: false
+
+  # Also allow direct trigger from a `issues` event for testing in the
+  # boilerplate repo itself.
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: agent-on-card-${{ github.event.issue.number || github.event.inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve issue
+    runs-on: ubuntu-latest
+    outputs:
+      issue_number: ${{ steps.get.outputs.issue_number }}
+      issue_title: ${{ steps.get.outputs.issue_title }}
+    steps:
+      - name: Decide trigger and issue
+        id: get
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PAYLOAD_PATH: ${{ github.event_path }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          TRIGGER_LABEL: ${{ inputs.agent_trigger_label }}
+        run: |
+          set -euo pipefail
+          issue_number=""
+          issue_title=""
+
+          if [[ "${EVENT_NAME}" == "issues" ]]; then
+            if [[ "${LABEL_NAME}" != "${TRIGGER_LABEL}" ]]; then
+              echo "Label ${LABEL_NAME} does not match ${TRIGGER_LABEL}; skipping."
+              exit 0
+            fi
+            issue_number="$(jq -r '.issue.number' "${EVENT_PAYLOAD_PATH}")"
+            issue_title="$(jq -r '.issue.title' "${EVENT_PAYLOAD_PATH}")"
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            issue_number="${{ inputs.issue_number }}"
+          fi
+
+          if [[ -z "${issue_number}" ]]; then
+            echo "::error::Could not resolve issue_number for event ${EVENT_NAME}" >&2
+            exit 1
+          fi
+
+          echo "issue_number=${issue_number}" >> "${GITHUB_OUTPUT}"
+          echo "issue_title=${issue_title}" >> "${GITHUB_OUTPUT}"
+
+  run:
+    name: Run agent on issue ${{ needs.resolve.outputs.issue_number }}
+    needs: resolve
+    if: needs.resolve.outputs.issue_number != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes + 5 }}
+    steps:
+      - name: Check out boilerplate (so we get the actions and CLI)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          path: ./.boilerplate-src
+
+      - name: Copy boilerplate into workspace root
+        run: |
+          set -euo pipefail
+          # We checked out the boilerplate into a sub-folder; bring its
+          # actions and packages into the consumer's workspace so paths
+          # like ./setup-agent-mavis resolve correctly.
+          cp -R ./.boilerplate-src/.github ./
+          cp -R ./.boilerplate-src/packages ./
+          rm -rf ./.boilerplate-src
+
+      - name: Move card to In Progress
+        uses: ./.github/actions/kanban-sync
+        with:
+          issue_number: ${{ needs.resolve.outputs.issue_number }}
+          project_title: ${{ inputs.project_title }}
+          project_owner: ${{ inputs.project_owner }}
+          target_status: ${{ inputs.in_progress_status }}
+          status_field_name: ${{ inputs.status_field_name }}
+          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          comment: '🤖 Agent picked this up. Tracking in workflow run ${{ github.run_id }}.'
+          comment_once: 'true'
+
+      - name: Read card context
+        id: card
+        uses: ./.github/actions/kanban-read-card
+        with:
+          issue_number: ${{ needs.resolve.outputs.issue_number }}
+          project_title: ${{ inputs.project_title }}
+          project_owner: ${{ inputs.project_owner }}
+          status_field_name: ${{ inputs.status_field_name }}
+          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+
+      - name: Checkout and prepare branch
+        uses: ./.github/actions/checkout-and-prepare
+        with:
+          base_ref: ${{ inputs.base_ref }}
+          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          issue_number: ${{ needs.resolve.outputs.issue_number }}
+          issue_title: ${{ steps.card.outputs.prompt }}
+
+      - name: Run agent
+        id: agent
+        uses: ./.github/actions/agent-runner
+        with:
+          agent: ${{ inputs.agent }}
+          prompt: ${{ steps.card.outputs.prompt }}
+          setup_action: ${{ inputs.custom_setup_action }}
+          extra_args: ${{ inputs.agent_extra_args }}
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          agent_token: ${{ secrets.agent_gh_token || secrets.github_token }}
+
+      - name: Move card to In Review
+        if: always() && steps.agent.outputs.pr_url != ''
+        uses: ./.github/actions/kanban-sync
+        with:
+          issue_number: ${{ needs.resolve.outputs.issue_number }}
+          project_title: ${{ inputs.project_title }}
+          project_owner: ${{ inputs.project_owner }}
+          target_status: ${{ inputs.in_review_status }}
+          status_field_name: ${{ inputs.status_field_name }}
+          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          comment: |
+            🤖 Agent finished. PR: ${{ steps.agent.outputs.pr_url }}
+
+            Summary: ${{ steps.agent.outputs.summary }}
+          comment_once: 'true'
+
+      - name: Report failure on the card
+        if: failure()
+        uses: ./.github/actions/kanban-sync
+        with:
+          issue_number: ${{ needs.resolve.outputs.issue_number }}
+          project_title: ${{ inputs.project_title }}
+          project_owner: ${{ inputs.project_owner }}
+          target_status: ${{ inputs.in_progress_status }}
+          status_field_name: ${{ inputs.status_field_name }}
+          token: ${{ secrets.agent_gh_token || secrets.github_token }}
+          comment: |
+            ⚠️ Agent run failed. See workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          comment_once: 'true'

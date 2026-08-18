@@ -1,0 +1,120 @@
+name: 'Kanban — read card'
+description: >-
+  Read a GitHub Project v2 card for a given issue and emit its context as
+  action outputs. Uses the @boilerplate/kanban-cli package, which wraps the
+  Projects v2 GraphQL API.
+
+inputs:
+  issue_number:
+    description: 'Issue number whose project card should be resolved.'
+    required: true
+  project_title:
+    description: 'Title of the Project v2 board (e.g. "Engineering Backlog").'
+    required: true
+  project_owner:
+    description: >-
+      Login of the project owner (user or org). Defaults to the current repo
+      owner if omitted.
+    required: false
+    default: ''
+  token:
+    description: >-
+      Token with `project` scope (classic PAT) or Projects permission
+      (fine-grained). Required: `GITHUB_TOKEN` does NOT have Projects v2
+      access by default.
+    required: true
+  status_field_name:
+    description: 'Name of the single-select Status field on the project.'
+    required: false
+    default: 'Status'
+  require_card:
+    description: >-
+      If "true", fail the step when the issue is not on the project. If
+      "false", emit empty outputs and continue.
+    required: false
+    default: 'true'
+
+outputs:
+  item_id:
+    description: 'The ProjectV2Item id for this issue.'
+    value: ${{ steps.read.outputs.item_id }}
+  project_id:
+    description: 'The Project v2 id.'
+    value: ${{ steps.read.outputs.project_id }}
+  status_option_id:
+    description: 'The current Status option id (single-select).'
+    value: ${{ steps.read.outputs.status_option_id }}
+  status_name:
+    description: 'The current Status option name (e.g. "Todo").'
+    value: ${{ steps.read.outputs.status_name }}
+  status_field_id:
+    description: 'The Status field id on the project.'
+    value: ${{ steps.read.outputs.status_field_id }}
+  card_url:
+    description: 'URL of the project card / issue.'
+    value: ${{ steps.read.outputs.card_url }}
+  prompt:
+    description: >-
+      A synthesized prompt for the agent: issue title, body, labels, and
+      any acceptance-criteria checklist found in the body.
+    value: ${{ steps.read.outputs.prompt }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install kanban CLI
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The boilerplate ships the CLI as a workspace package; consumer
+        # repos can override this with their own checkout+install step.
+        if [[ -d "packages/kanban-cli" ]]; then
+          npm ci --no-audit --no-fund
+          npm run build --workspace=@boilerplate/kanban-cli
+        else
+          echo "::error::packages/kanban-cli not found in this repo. Either vendor the boilerplate, or replace this step with your own CLI install." >&2
+          exit 1
+        fi
+
+    - name: Read card
+      id: read
+      shell: bash
+      env:
+        ISSUE_NUMBER: ${{ inputs.issue_number }}
+        PROJECT_TITLE: ${{ inputs.project_title }}
+        PROJECT_OWNER: ${{ inputs.project_owner }}
+        GH_TOKEN: ${{ inputs.token }}
+        STATUS_FIELD_NAME: ${{ inputs.status_field_name }}
+        REQUIRE_CARD: ${{ inputs.require_card }}
+        GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+      run: |
+        set -euo pipefail
+        owner="${PROJECT_OWNER:-${GITHUB_REPOSITORY_OWNER}}"
+        args=(get-card --issue "${ISSUE_NUMBER}" --project "${PROJECT_TITLE}" --owner "${owner}" --field "${STATUS_FIELD_NAME}")
+        if [[ "${REQUIRE_CARD}" == "true" ]]; then args+=(--require); fi
+
+        set +e
+        output="$(node packages/kanban-cli/dist/index.js "${args[@]}")"
+        rc=$?
+        set -e
+        if [[ $rc -ne 0 ]]; then
+          echo "${output}" >&2
+          if [[ "${REQUIRE_CARD}" == "true" ]]; then exit $rc; fi
+        fi
+
+        # Outputs are emitted as key=value lines by the CLI.
+        while IFS='=' read -r key value; do
+          case "${key}" in
+            item_id|project_id|status_option_id|status_name|status_field_id|card_url|prompt)
+              # Multiline prompt -> use heredoc via delimiter
+              echo "${key}<<EOF" >> "${GITHUB_OUTPUT}"
+              echo "${value}" >> "${GITHUB_OUTPUT}"
+              echo "EOF" >> "${GITHUB_OUTPUT}"
+              ;;
+          esac
+        done <<< "${output}"

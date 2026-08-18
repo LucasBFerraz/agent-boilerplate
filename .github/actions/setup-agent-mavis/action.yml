@@ -1,0 +1,45 @@
+name: 'Setup — Mavis / MiniMax Code CLI'
+description: >-
+  Install the Mavis (MiniMax Code) CLI. The CLI is published on npm as
+  `mavis` and authenticates with `MAVIS_API_KEY` or via OAuth device flow.
+
+inputs:
+  token:
+    description: 'GitHub token for pushing branches.'
+    required: false
+    default: ${{ github.token }}
+  version:
+    description: 'mavis version to install.'
+    required: false
+    default: 'latest'
+  api_key:
+    description: 'Mavis API key. Default: secrets.MAVIS_API_KEY.'
+    required: false
+    default: ${{ secrets.MAVIS_API_KEY }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Mavis CLI
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [[ "${VERSION}" == "latest" ]]; then
+          npm install -g mavis
+        else
+          npm install -g "mavis@${VERSION}"
+        fi
+        mavis --version || true
+
+    - name: Authenticate
+      if: ${{ inputs.api_key != '' }}
+      shell: bash
+      env:
+        MAVIS_API_KEY: ${{ inputs.api_key }}
+      run: |
+        set -euo pipefail
+        echo "Mavis key present: $([[ -n "${MAVIS_API_KEY}" ]] && echo yes || echo no)"
+        # Mavis picks up MAVIS_API_KEY from the env. For OAuth, replace
+        # with `mavis login --device`.

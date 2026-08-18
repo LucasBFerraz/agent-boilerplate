@@ -1,0 +1,22 @@
+name: 'Setup — custom agent (passthrough)'
+description: >-
+  Passthrough action for `agent-runner`. Does nothing on its own — supply
+  your own `setup_action` when invoking `agent-runner` with
+  `agent: custom`.
+
+inputs:
+  token:
+    description: 'GitHub token for pushing branches.'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: No-op
+      shell: bash
+      run: |
+        echo "setup-agent-custom: this is a passthrough. Provide your own setup_action to agent-runner."
+        echo "GH_TOKEN length: ${#TOKEN:-0}"
+      env:
+        TOKEN: ${{ inputs.token }}

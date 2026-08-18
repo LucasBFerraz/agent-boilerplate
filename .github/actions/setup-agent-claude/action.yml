@@ -1,0 +1,46 @@
+name: 'Setup — Claude Code'
+description: >-
+  Install and authenticate the Claude Code CLI. Expects `ANTHROPIC_API_KEY`
+  (or an OAuth token) in the workflow secrets.
+
+inputs:
+  token:
+    description: 'GitHub token for `claude` to push branches. Not used for auth to Anthropic.'
+    required: false
+    default: ${{ github.token }}
+  version:
+    description: 'Claude Code CLI version to install.'
+    required: false
+    default: 'latest'
+  api_key:
+    description: >-
+      Anthropic API key. Default: `secrets.ANTHROPIC_API_KEY`.
+    required: false
+    default: ${{ secrets.ANTHROPIC_API_KEY }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Claude Code CLI
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [[ "${VERSION}" == "latest" ]]; then
+          npm install -g @anthropic-ai/claude-code
+        else
+          npm install -g "@anthropic-ai/claude-code@${VERSION}"
+        fi
+        claude --version
+
+    - name: Authenticate
+      if: ${{ inputs.api_key != '' }}
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.api_key }}
+      run: |
+        set -euo pipefail
+        # Claude Code picks up ANTHROPIC_API_KEY from the env automatically.
+        # For OAuth-based auth, replace this with your team's login flow.
+        echo "Anthropic key present: $([[ -n "${ANTHROPIC_API_KEY}" ]] && echo yes || echo no)"

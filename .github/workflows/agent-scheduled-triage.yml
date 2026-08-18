@@ -1,0 +1,143 @@
+name: 'Agent — scheduled Kanban triage (reusable)'
+
+# Reusable workflow. Trigger contract:
+#   - Runs on a cron schedule (default: 06:00 UTC weekdays).
+#
+# What it does:
+#   1. Lists cards in the `Todo` column of the project.
+#   2. For each card without a `agent:ready` label, posts a comment
+#      asking the maintainer to add the label if the card is ready for
+#      the agent.
+#   3. Optionally, for each card with `agent:ready`, re-runs the
+#      `agent-on-card` workflow (if the consumer repo opted in).
+#
+# Use this to keep the Kanban honest and to surface stuck cards.
+
+on:
+  workflow_call:
+    inputs:
+      project_title:
+        type: string
+        required: true
+      project_owner:
+        type: string
+        required: false
+        default: ''
+      status_field_name:
+        type: string
+        required: false
+        default: 'Status'
+      todo_status:
+        type: string
+        required: false
+        default: 'Todo'
+      in_progress_status:
+        type: string
+        required: false
+        default: 'In Progress'
+      in_review_status:
+        type: string
+        required: false
+        default: 'In Review'
+      done_status:
+        type: string
+        required: false
+        default: 'Done'
+      max_cards_per_run:
+        description: 'Cap the number of cards touched in a single run.'
+        type: number
+        required: false
+        default: 25
+      cron_schedule:
+        description: 'Cron expression. Default: weekdays 06:00 UTC.'
+        type: string
+        required: false
+        default: '0 6 * * 1-5'
+    secrets:
+      agent_gh_token:
+        required: true
+      github_token:
+        required: false
+
+  schedule:
+    - cron: ${{ inputs.cron_schedule || '0 6 * * 1-5' }}
+
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: agent-scheduled-triage
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    name: Triage Kanban
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out boilerplate (for the CLI)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          path: ./.boilerplate-src
+
+      - name: Copy boilerplate
+        run: |
+          set -euo pipefail
+          cp -R ./.boilerplate-src/packages ./
+          rm -rf ./.boilerplate-src
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build kanban CLI
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build --workspace=@boilerplate/kanban-cli
+
+      - name: List Todo cards
+        id: list
+        shell: bash
+        env:
+          PROJECT_TITLE: ${{ inputs.project_title }}
+          PROJECT_OWNER: ${{ inputs.project_owner }}
+          STATUS_FIELD_NAME: ${{ inputs.status_field_name }}
+          TODO_STATUS: ${{ inputs.todo_status }}
+          GH_TOKEN: ${{ secrets.agent_gh_token || secrets.github_token }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          MAX: ${{ inputs.max_cards_per_run }}
+        run: |
+          set -euo pipefail
+          owner="${PROJECT_OWNER:-${GITHUB_REPOSITORY_OWNER}}"
+          output="$(node packages/kanban-cli/dist/index.js ready \
+            --project "${PROJECT_TITLE}" \
+            --owner "${owner}" \
+            --field "${STATUS_FIELD_NAME}" \
+            --status "${TODO_STATUS}" \
+            --limit "${MAX}" \
+            --format json)"
+          echo "${output}" > /tmp/ready.json
+          count="$(jq 'length' /tmp/ready.json)"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          echo "Found ${count} Todo card(s)."
+
+      - name: Nudge unready cards
+        if: steps.list.outputs.count > 0
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.agent_gh_token || secrets.github_token }}
+        run: |
+          set -euo pipefail
+          jq -c '.[]' /tmp/ready.json | while read -r card; do
+            n="$(echo "${card}" | jq -r '.issue_number')"
+            labels="$(echo "${card}" | jq -r '.labels | join(",")')"
+            if [[ "${labels}" != *"agent:ready"* ]]; then
+              gh issue comment "${n}" --body "👋 Triage bot: this card has been in 'Todo' for a while. Add the \`agent:ready\` label to hand it off to the AI agent, or update the status manually if it's blocked."
+            fi
+          done
