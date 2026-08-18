@@ -112,10 +112,13 @@ jobs:
           # The kanban-cli install step (below) needs the root package.json
           # and package-lock.json to run `npm ci`. Without them, npm ci
           # fails with EUSAGE ("can only install with an existing
-          # package-lock.json"). Bring them along with the packages.
+          # package-lock.json"). The kanban-cli tsconfig.json also
+          # extends ../../tsconfig.base.json, so that has to come along
+          # too — otherwise `tsc` errors with TS5083.
           cp -R ./.boilerplate-src/packages ./
           [[ ! -f ./package.json     ]] && cp ./.boilerplate-src/package.json ./
           [[ ! -f ./package-lock.json ]] && cp ./.boilerplate-src/package-lock.json ./
+          [[ ! -f ./tsconfig.base.json ]] && cp ./.boilerplate-src/tsconfig.base.json ./
           rm -rf ./.boilerplate-src
 
       - name: Set up Node

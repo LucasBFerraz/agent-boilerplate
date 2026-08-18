@@ -166,12 +166,14 @@ jobs:
           cp -R ./.boilerplate-src/.github ./
           cp -R ./.boilerplate-src/packages ./
           # The downstream kanban-sync / kanban-read-card actions run
-          # `npm ci` to build @boilerplate/kanban-cli. They need a root
-          # package.json + package-lock.json. Only seed them if the
-          # consumer doesn't already have one — never clobber an
-          # existing package.json.
+          # `npm ci` + `tsc` to build @boilerplate/kanban-cli. They
+          # need a root package.json + package-lock.json, and the
+          # packages/kanban-cli/tsconfig.json extends
+          # ../../tsconfig.base.json. Only seed these if the consumer
+          # doesn't already have them — never clobber existing files.
           [[ ! -f ./package.json     ]] && cp ./.boilerplate-src/package.json ./
           [[ ! -f ./package-lock.json ]] && cp ./.boilerplate-src/package-lock.json ./
+          [[ ! -f ./tsconfig.base.json ]] && cp ./.boilerplate-src/tsconfig.base.json ./
           rm -rf ./.boilerplate-src
 
       - name: Move card to In Progress
