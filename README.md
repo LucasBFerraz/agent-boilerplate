@@ -17,13 +17,14 @@ A **language-agnostic** boilerplate for running AI coding agents inside GitHub A
 ## Architecture in one diagram
 
 ```
-                ┌─────────────────────────────────────┐
-                │       GitHub Projects v2 board      │
-                │   Todo  →  In Progress  →  Review   │
-                └─────────────────────────────────────┘
-                       ▲                │
-        kanban-sync    │                │  read card context
-        (move card)    │                ▼
+                ┌────────────────────────────────────────────┐
+                │       GitHub Projects v2 board (5-state)   │
+                │  Backlog → Ready → In Progress → Review    │
+                │                              → Done        │
+                └────────────────────────────────────────────┘
+                       ▲                       │
+        kanban-sync    │                       │  read card context
+        (move card)    │                       ▼
                        │       ┌──────────────────────┐
                        │       │  agent-on-card.yml   │  (reusable)
                        │       └──────────────────────┘
@@ -42,15 +43,18 @@ A **language-agnostic** boilerplate for running AI coding agents inside GitHub A
                        │                │
                        └────────────────┘
                               (PR merged → "Done")
+
+   Triggered by the `agent:ready` issue label, regardless of which
+   unready column the card currently sits in (Backlog/Ready/Todo).
 ```
 
 ## Quick start
 
-1. **Create a Project v2** in your org/user. Add four Status options: `Todo`, `In Progress`, `In Review`, `Done`.
+1. **Create a Project v2** in your org/user. Add five Status options matching GitHub's default board: `Backlog`, `Ready`, `In Progress`, `In Review`, `Done`. (A 4-state board with just `Todo` still works — see [`docs/kanban.md`](docs/kanban.md#migrating-from-a-4-state-board).)
 2. **Add a custom label** `agent:ready` to your repo.
 3. **Create a GitHub PAT or App** with `repo`, `project`, `read:org` (store as `AGENT_GH_TOKEN` secret).
 4. **In a consumer repo**, copy the example workflow from `examples/consumer-repo-workflow.yml` into `.github/workflows/agent.yml` and `uses:` one of the reusable workflows from this repo.
-5. **Open an issue**, put it on the project in the `Todo` column, add the `agent:ready` label. The agent picks it up.
+5. **Open an issue**, put it on the project in the `Backlog` or `Ready` column, add the `agent:ready` label. The agent picks it up.
 
 Full setup: see [`docs/setup.md`](docs/setup.md).
 

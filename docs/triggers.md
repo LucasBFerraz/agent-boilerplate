@@ -8,7 +8,8 @@ How the agent gets activated. There are three first-class triggers, all of them 
 **Event:** `issues: labeled` with the label `agent:ready` (configurable).
 
 ```
-issue opened → added to project board, in "Todo" column
+issue opened → added to project board
+       │       (Backlog / Ready / Todo column)
        │       labeled "agent:ready"
        ▼
    issues:labeled event
@@ -25,7 +26,12 @@ issue opened → added to project board, in "Todo" column
 
 **Override inputs:** `agent_trigger_label`, `in_progress_status`, `in_review_status`, `base_ref`, `timeout_minutes`, `agent_extra_args`.
 
-### Why a label, not just "any new issue"?
+### Why a label, not the card's status column?
+
+The card's `Status` field can sit in any of `Backlog`, `Ready`, or `Todo` (5-state + 4-state legacy) — the column describes where the card is in the human workflow, not whether the agent should pick it up. Decoupling the trigger from the column gives you two free properties:
+
+1. **Triage is independent of agent pickup.** A human can move a card from `Backlog` to `Ready` without triggering the agent — the label is the explicit hand-off.
+2. **4-state and 5-state boards share the same trigger mechanism.** The agent doesn't care which column the card is in; the label is uniform across both models.
 
 Labels let humans **opt in** a card to the agent. A human triage step (add the label) is the simplest guardrail. The agent never runs on un-labeled issues.
 
@@ -62,13 +68,16 @@ The on-card workflow is "card → PR". The on-mention workflow is "PR → next c
 ```
 cron fires
    │
-   ├──> list cards in "Todo" column
+   ├──> list cards in "Backlog" / "Ready" / "Todo" columns
+   │    (the three "unready" columns; defaults match the
+   │     5-state model and include the 4-state legacy)
    │
    └──> for each card without "agent:ready" label:
-            post a nudge comment on the issue
+            post a nudge comment on the issue,
+            naming the card's current column
 ```
 
-**Override inputs:** `cron_schedule`, `max_cards_per_run`, `todo_status`.
+**Override inputs:** `cron_schedule`, `max_cards_per_run`, `backlog_status`, `ready_status`, `todo_status`. Set any of the three status inputs to an empty string to drop that column from the scan.
 
 ### Why a separate workflow?
 

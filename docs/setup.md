@@ -14,7 +14,8 @@ In the GitHub UI:
 
 1. Go to your org (or user) → **Projects** → **New project** → **Board**.
 2. Title: e.g. `Engineering Backlog`.
-3. The default `Status` field should have options like `Todo`, `In Progress`, `In Review`, `Done`. Add/rename as you like, but the boilerplate defaults to those names. If you change them, override `in_progress_status` and `in_review_status` in the workflow inputs.
+3. The default `Status` field should have options like `Backlog`, `Ready`, `In Progress`, `In Review`, `Done` — the **5-state model** that matches GitHub's default board. You can rename any of them, but if you do, override the corresponding input on the consumer workflow (`backlog_status`, `ready_status`, `in_progress_status`, `in_review_status`, `done_status`).
+4. If you have an existing 4-state board (`Todo` / `In Progress` / `In Review` / `Done`), it still works out of the box — the boilerplate also scans the legacy `Todo` column. To migrate, add `Backlog` and `Ready` options to your board, move cards from `Todo` into them, and (optionally) override `todo_status: ''` on the consumer workflow to stop scanning the old column.
 
 > The boilerplate assumes the Status field is a **single-select** field. If you use a project-level workflow (the older "Status" built-in), you may need to migrate — see [GitHub's migration guide](https://docs.github.com/en/issues/planning-and-tracking-with-projects/understanding-fields/about-single-select-fields).
 
@@ -83,7 +84,7 @@ In the consumer repo → **Issues** → **Labels** → **New label**:
 ## 6. Test the loop
 
 1. Create an issue in the consumer repo. Title: `Add a "Hello" log line to startup`. Body: a short description and a one-line acceptance criterion.
-2. Add the issue to your Project v2 board. Put it in the `Todo` column.
+2. Add the issue to your Project v2 board. Put it in the `Backlog` or `Ready` column (or `Todo` if you're still on the 4-state model).
 3. Add the `agent:ready` label.
 4. Within a few seconds, the `agent-on-card.yml` workflow should run. Watch it under the **Actions** tab.
 5. When it finishes, you should have:

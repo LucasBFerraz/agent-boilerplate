@@ -84,7 +84,7 @@ If the agent does something wrong:
 
 1. **Close the PR** (do not merge).
 2. **Delete the branch.**
-3. **Move the card back to `Todo`** or close the issue.
+3. **Move the card back to `Ready`** (or `Todo` on a 4-state board) or close the issue.
 4. **Check the run artifacts** for what the agent did.
 5. **Update `AGENTS.md`** if a new class of misbehavior is possible. The agent reads it on every run.
 6. **Rotate `AGENT_GH_TOKEN`** if you suspect the agent exfiltrated it.

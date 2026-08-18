@@ -14,41 +14,44 @@ This document explains how the pieces fit together. For a quick visual, see the 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                          GitHub Project v2 board                     │
-│  ┌───────┐    ┌──────────────┐    ┌───────────┐    ┌──────┐         │
-│  │ Todo  │ →  │ In Progress  │ →  │ In Review │ →  │ Done │         │
-│  └───┬───┘    └──────┬───────┘    └─────┬─────┘    └──────┘         │
-│      │               │                  │                            │
-└──────┼───────────────┼──────────────────┼────────────────────────────┘
-       │               │                  │
-       │               │                  │ kanban-sync (moves cards)
-       │               │                  ▼
-       │       ┌───────┴──────────────────────────────────────┐
-       │       │           agent-on-card.yml (reusable)       │
-       │       │  1. resolve issue                            │
-       │       │  2. kanban-sync → "In Progress"             │
-       │       │  3. kanban-read-card                         │
-       │       │  4. checkout-and-prepare                     │
-       │       │  5. agent-runner (pluggable)                 │
-       │       │  6. kanban-sync → "In Review"                │
-       │       └───────┬──────────────────────────────────────┘
-       │               │
-       │               ▼
-       │       ┌──────────────────────────────────────┐
-       │       │         agent-runner (CA)            │
-       │       │  ↳ setup-agent-{claude|copilot|…}    │
-       │       │  ↳ write .agent-prompt.md            │
-       │       │  ↳ invoke CLI in non-interactive mode│
-       │       │  ↳ collect agent-result.json         │
-       │       └──────────────────────────────────────┘
-       │               │
-       │               ▼
-       │       ┌──────────────────────────────────────┐
-       │       │     branch + PR (human merges)       │
-       │       └──────────────────────────────────────┘
-       │
-       │ (label "agent:ready")
-       ▼
-   issues event ──▶ workflow_call ──▶ agent-on-card.yml
+│  ┌─────────┐  ┌───────┐  ┌──────────────┐  ┌───────────┐  ┌──────┐  │
+│  │ Backlog │→ │ Ready │→ │ In Progress  │→ │ In Review │→ │ Done │  │
+│  └────┬────┘  └───┬───┘  └──────┬───────┘  └─────┬─────┘  └──┬───┘  │
+│       │           │             │                │            │      │
+└───────┼───────────┼─────────────┼────────────────┼────────────┼──────┘
+        │           │             │                │            │
+        │           │             │ kanban-sync (moves cards)    │
+        │           │             │                ▼            │
+        │           │     ┌───────┴──────────────────────────────────────┐
+        │           │     │           agent-on-card.yml (reusable)       │
+        │           │     │  1. resolve issue                            │
+        │           │     │  2. kanban-sync → "In Progress"             │
+        │           │     │  3. kanban-read-card                         │
+        │           │     │  4. checkout-and-prepare                     │
+        │           │     │  5. agent-runner (pluggable)                 │
+        │           │     │  6. kanban-sync → "In Review"                │
+        │           │     └───────┬──────────────────────────────────────┘
+        │           │             │
+        │           │             ▼
+        │           │     ┌──────────────────────────────────────┐
+        │           │     │         agent-runner (CA)            │
+        │           │     │  ↳ setup-agent-{claude|copilot|…}    │
+        │           │     │  ↳ write .agent-prompt.md            │
+        │           │     │  ↳ invoke CLI in non-interactive mode│
+        │           │     │  ↳ collect agent-result.json         │
+        │           │     └──────────────────────────────────────┘
+        │           │             │
+        │           │             ▼
+        │           │     ┌──────────────────────────────────────┐
+        │           │     │     branch + PR (human merges)       │
+        │           │     └──────────────────────────────────────┘
+        │           │
+        │  (label "agent:ready" — picked up from any of Backlog/Ready/Todo)
+        │           ▼
+        │     issues event ──▶ workflow_call ──▶ agent-on-card.yml
+        │
+        └─── agent-scheduled-triage scans Backlog/Ready/Todo for cards
+             without the label and posts a nudge comment.
 ```
 
 ### Composite actions
@@ -70,9 +73,9 @@ Each does one thing well, takes typed inputs, and emits typed outputs.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `agent-on-card.yml` | `workflow_call` / `issues: labeled` | Card → In Progress → agent run → In Review. |
+| `agent-on-card.yml` | `workflow_call` / `issues: labeled` | Card (with `agent:ready` label) → In Progress → agent run → In Review. The card may sit in any unready column (`Backlog`, `Ready`, or `Todo`); the label, not the status, is the trigger. |
 | `agent-discussion.yml` | `workflow_call` / `issue_comment: created` | `@agent-bot` mention → continue on the existing branch. |
-| `agent-scheduled-triage.yml` | `workflow_call` / `schedule` | Nudge un-ready cards; surface stuck work. |
+| `agent-scheduled-triage.yml` | `workflow_call` / `schedule` | Nudge un-ready cards in `Backlog` / `Ready` / `Todo`; surface stuck work. |
 
 ### Kanban CLI
 

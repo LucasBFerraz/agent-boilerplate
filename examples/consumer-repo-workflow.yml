@@ -25,9 +25,10 @@ jobs:
       agent: mavis                         # claude | copilot | mavis | custom
       project_title: 'Engineering Backlog' # The name of your Project v2 board
       # project_owner: 'YOUR-ORG'          # Defaults to the repo owner
-      # in_progress_status: 'In Progress'
-      # in_review_status: 'In Review'
-      # agent_trigger_label: 'agent:ready'
+      # status_field_name: 'Status'        # The single-select Status field on the project
+      # in_progress_status: 'In Progress'  # Where the card moves when the agent picks it up
+      # in_review_status: 'In Review'      # Where the card moves after the PR is opened
+      # agent_trigger_label: 'agent:ready' # The label that hands the card off to the agent
       # base_ref: 'main'
       # timeout_minutes: 20
       # agent_extra_args: '--model mavis-3'
@@ -51,5 +52,12 @@ jobs:
     with:
       project_title: 'Engineering Backlog'
       cron_schedule: '0 6 * * 1-5'
+      # The "unready" columns the triage bot scans for cards without
+      # the `agent:ready` label. Defaults match the 5-state model
+      # (Backlog + Ready) and keep the legacy 4-state Todo column
+      # in scope. Set any of these to '' to drop that column.
+      # backlog_status: 'Backlog'
+      # ready_status: 'Ready'
+      # todo_status: 'Todo'
     secrets:
       agent_gh_token: ${{ secrets.AGENT_GH_TOKEN }}

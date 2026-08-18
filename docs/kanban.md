@@ -5,22 +5,20 @@ This document describes the data model: how issues, projects, and cards relate, 
 ## The model
 
 ```
-┌──────────────────────────┐         ┌─────────────────────────────────┐
-│       GitHub Repo        │         │         Project v2 board        │
-│                          │         │                                 │
-│  ┌────────────────────┐  │   add   │  ┌─────────┬─────────┬───────┐  │
-│  │       Issue        │──┼─────to──┼─▶│  Todo   │   ...   │ Done  │  │
-│  │                    │  │  card   │  └─────────┴─────────┴───────┘  │
-│  │  - number          │  │         │           ▲                     │
-│  │  - title, body     │  │         │           │ has                 │
-│  │  - labels          │  │         │  ┌────────┴────────┐            │
-│  │  - state           │  │         │  │ ProjectItem     │            │
-│  └────────────────────┘  │         │  │  - id           │            │
-│                          │         │  │  - fieldValues   │            │
-└──────────────────────────┘         │  │    - Status:     │            │
-                                     │  │      optionId   │            │
-                                     │  └─────────────────┘            │
-                                     └─────────────────────────────────┘
+┌──────────────────────────┐         ┌──────────────────────────────────────────┐
+│       GitHub Repo        │         │           Project v2 board               │
+│                          │         │                                          │
+│  ┌────────────────────┐  │   add   │  ┌────────┬───────┬─────────┬───────┐  │
+│  │       Issue        │──┼─────to──┼─▶│Backlog │ Ready │In Prog. │  ...  │  │
+│  │                    │  │  card   │  └───┬────┴───┬───┴────┬────┴───┬───┘  │
+│  │  - number          │  │         │      │        │        │        │ has  │
+│  │  - title, body     │  │         │  ┌───┴────────┴────────┴────────┴──┐   │
+│  │  - labels          │  │         │  │ ProjectItem                   │   │
+│  │  - state           │  │         │  │  - id                         │   │
+│  └────────────────────┘  │         │  │  - fieldValues                │   │
+│                          │         │  │    - Status: optionId         │   │
+└──────────────────────────┘         │  └──────────────────────────────┘   │
+                                     └──────────────────────────────────────────┘
 ```
 
 - An **issue** lives in a repo.
@@ -103,15 +101,44 @@ Output (JSON):
 
 ## Status options
 
-The boilerplate does **not** create the Status field or its options — that's a one-time project setup decision. The defaults are:
+The boilerplate does **not** create the Status field or its options — that's a one-time project setup decision. It ships with the **5-state model** as the default, matching GitHub's default Project v2 board:
 
-| Workflow input | Default value | Meaning |
+| Column | Default value | Meaning | Moved by |
+|---|---|---|---|
+| `Backlog` | `Backlog` | Issues that exist but aren't triaged yet. | — |
+| `Ready` | `Ready` | Triaged, description clear, waiting to be picked up. | — |
+| `In Progress` | `In Progress` | The agent is actively working on it. | Agent on pickup. |
+| `In Review` | `In Review` | A PR is open and waiting for a human. | Agent after PR creation. |
+| `Done` | `Done` | PR merged or otherwise resolved. | Human (not automated). |
+
+The corresponding workflow inputs (all overridable on the consumer's `uses:` invocation):
+
+| Workflow input | Default value | Used in |
 |---|---|---|
-| `in_progress_status` | `In Progress` | Set when the agent picks up the card. |
-| `in_review_status` | `In Review` | Set when the agent opens a PR. |
-| `done_status` | `Done` | Set by a human after the PR is merged (not automated). |
+| `backlog_status` | `Backlog` | `agent-scheduled-triage` (nudge scope) |
+| `ready_status` | `Ready` | `agent-scheduled-triage` (nudge scope) |
+| `todo_status` | `Todo` | `agent-scheduled-triage` (nudge scope, legacy 4-state) |
+| `in_progress_status` | `In Progress` | `agent-on-card` + `agent-scheduled-triage` (move target) |
+| `in_review_status` | `In Review` | `agent-on-card` (move target) |
+| `done_status` | `Done` | `agent-scheduled-triage` (move target, when present) |
 
-If your project uses different option names, override them in the consumer workflow.
+### Trigger model: label, not status
+
+The agent is triggered by the **`agent:ready` issue label**, regardless of which `Backlog`/`Ready`/`Todo` column the card currently sits in. A human adds the label when the card is ready to hand off; the agent then moves the card to `In Progress` and proceeds.
+
+This means:
+
+- **You can move a card from `Backlog` → `Ready` without triggering anything.** Triage is decoupled from agent pickup.
+- **You can also leave the card in `Todo` (4-state model) and still hand it off with the label.** The status is metadata; the label is the trigger.
+- **The triage workflow nudges cards in any of `Backlog`, `Ready`, or `Todo`** that have been sitting there without the label.
+
+### Migrating from a 4-state board
+
+If your project already uses the older 4-state model (`Todo` / `In Progress` / `In Review` / `Done`):
+
+1. **Nothing breaks.** The defaults are: `Backlog`/`Ready` (added, not used unless present on your board) + `Todo` (still scanned).
+2. **To adopt the 5-state model**, add the `Backlog` and `Ready` options to your project's Status field, then move cards from `Todo` into one of them. You can also drop `Todo` from the triage scan by overriding `todo_status: ''` on the consumer workflow.
+3. **To use a non-default option name** (e.g. `Backlog/Ready/Todo` in pt-BR, or `Awaiting Triage/Ready/WIP/Review/Closed`), override any of the inputs above on the consumer workflow.
 
 ## Multi-project setups
 

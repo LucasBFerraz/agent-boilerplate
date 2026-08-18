@@ -63,10 +63,10 @@ on:
         required: false
         default: 'main'
       timeout_minutes:
-        description: 'Agent invocation timeout.'
+        description: 'Agent invocation timeout (includes 5 min buffer for checkout/setup).'
         type: number
         required: false
-        default: 20
+        default: 25
       custom_setup_action:
         description: 'Custom setup action for `agent: custom`.'
         type: string
@@ -147,7 +147,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.issue_number != ''
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout_minutes + 5 }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
       - name: Check out boilerplate (so we get the actions and CLI)
         uses: actions/checkout@v4

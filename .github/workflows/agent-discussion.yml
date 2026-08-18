@@ -40,7 +40,7 @@ on:
       timeout_minutes:
         type: number
         required: false
-        default: 15
+        default: 20
     secrets:
       agent_gh_token:
         required: true
@@ -110,7 +110,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.skip != 'true' && needs.resolve.outputs.issue_number != ''
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout_minutes + 5 }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
       - name: Check out boilerplate
         uses: actions/checkout@v4
