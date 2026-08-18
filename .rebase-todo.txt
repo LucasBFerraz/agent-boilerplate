@@ -1,0 +1,3 @@
+pick 7396e2c fix(workflows): copy package.json + lockfile before npm ci
+squash 08972c9 fix(workflows): copy root files before npm ci + tsc
+pick cd551b1 fix(workflows): declare issue_number as workflow_call input
