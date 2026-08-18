@@ -29,7 +29,6 @@ interface ProjectItemNode {
     nodes: (
       | { __typename: 'ProjectV2ItemFieldSingleSelectValue'; name: string; optionId: string; field: { id: string; name: string } }
       | { __typename: 'ProjectV2ItemFieldTextValue'; text: string; field: { id: string; name: string } }
-      | { __typename: string }
     )[];
   };
 }

@@ -38,12 +38,10 @@ interface ListItemNode {
     | { __typename: 'Issue'; id: string; number: number; title: string; url: string; state: string; labels: { nodes: { name: string }[] } }
     | { __typename: 'PullRequest'; id: string; number: number; title: string; url: string; state: string }
     | { __typename: 'DraftIssue'; id: string; title: string }
-    | { __typename: string }
   ) | null;
   fieldValues: {
     nodes: (
       | { __typename: 'ProjectV2ItemFieldSingleSelectValue'; optionId: string; name: string; field: { id: string; name: string } }
-      | { __typename: string }
     )[];
   };
 }
@@ -101,7 +99,7 @@ export async function handleReady(rest: string[], flags: ParsedArgs['flags']): P
   let cursor: string | null = null;
   let fetched = 0;
   outer: while (fetched < limit * 2 /* fetch extra to allow for filtering */) {
-    const data = await client.graphql<ListItemsData>(LIST_ITEMS_IN_STATUS, {
+    const data: ListItemsData = await client.graphql<ListItemsData>(LIST_ITEMS_IN_STATUS, {
       projectId: matched.id,
       fieldId: statusField.id,
       optionId: targetOption.id,
@@ -110,10 +108,10 @@ export async function handleReady(rest: string[], flags: ParsedArgs['flags']): P
     if (!data.node) break;
     for (const item of data.node.items.nodes) {
       const status = item.fieldValues.nodes.find(
-        (v) =>
+        (v): v is { __typename: 'ProjectV2ItemFieldSingleSelectValue'; optionId: string; name: string; field: { id: string; name: string } } =>
           v.__typename === 'ProjectV2ItemFieldSingleSelectValue' &&
           v.field.name.toLowerCase() === fieldName.toLowerCase()
-      ) as { optionId: string } | undefined;
+      );
       if (!status || status.optionId !== targetOption.id) continue;
       if (item.content && item.content.__typename === 'Issue') {
         matchedItems.push({
@@ -121,7 +119,7 @@ export async function handleReady(rest: string[], flags: ParsedArgs['flags']): P
           title: item.content.title,
           url: item.content.url,
           state: item.content.state,
-          labels: item.content.labels.nodes.map((l) => l.name),
+          labels: item.content.labels.nodes.map((l: { name: string }) => l.name),
           item_id: item.id,
         });
         if (matchedItems.length >= limit) break outer;

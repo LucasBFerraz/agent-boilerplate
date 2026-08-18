@@ -37,3 +37,8 @@ coverage/
 
 # Kanban CLI build
 packages/*/dist/
+
+# Scratch / debug artifacts
+build.log
+tsc.log
+run-build.ps1
