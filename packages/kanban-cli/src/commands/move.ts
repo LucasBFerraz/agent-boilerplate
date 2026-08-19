@@ -35,6 +35,7 @@ export async function handleMove(rest: string[], flags: ParsedArgs['flags']): Pr
   const commentOnlyIfMoved = flags['comment-only-if-moved'] === 'true' || flags['comment-only-if-moved'] === true;
 
   const client = new GitHubClient({ token: requireToken() });
+  process.stderr.write(`[DEBUG] handleMove: about to call findProjectByOwner owner=${owner} project=${project}\n`);
 
   // 1. Find project + status field + target option.
   // `findProjectByOwner` queries user and organization in parallel
@@ -42,6 +43,7 @@ export async function handleMove(rest: string[], flags: ParsedArgs['flags']): Pr
   // to `user(login:)` errors the whole response, so we can't combine
   // them in one query.
   const allProjects = await findProjectByOwner(client, owner, project);
+  process.stderr.write(`[DEBUG] handleMove: got ${allProjects.length} projects\n`);
   const matched = allProjects.find(
     (p) => p.title.toLowerCase() === project.toLowerCase() || p.title.toLowerCase().includes(project.toLowerCase())
   );

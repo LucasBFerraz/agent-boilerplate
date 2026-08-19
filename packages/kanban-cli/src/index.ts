@@ -39,6 +39,7 @@ Run 'kanban <command> --help' for command-specific options.
 `;
 
 async function main(): Promise<void> {
+  process.stderr.write(`[DEBUG] main: argv=${JSON.stringify(process.argv.slice(2))}\n`);
   const args = parseArgs(process.argv.slice(2));
 
   if (args.flags.help || args.positionals.length === 0) {
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
   }
 
   const [command, ...rest] = args.positionals;
+  process.stderr.write(`[DEBUG] dispatching command: ${command}\n`);
 
   switch (command) {
     case 'get-card':
