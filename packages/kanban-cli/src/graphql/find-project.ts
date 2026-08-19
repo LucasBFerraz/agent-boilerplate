@@ -45,24 +45,10 @@ export async function findProjectByOwner(
   login: string,
   title: string
 ): Promise<ProjectNode[]> {
-  process.stderr.write(`[DEBUG] findProjectByOwner called: login=${login} title=${title}\n`);
   const [userResult, orgResult] = await Promise.allSettled([
     client.graphql<FindUserProjectData>(FIND_USER_PROJECT, { login, title }),
     client.graphql<FindOrgProjectData>(FIND_ORG_PROJECT, { login, title }),
   ]);
-  process.stderr.write(
-    `[DEBUG] allSettled done: user=${userResult.status} org=${orgResult.status}\n`
-  );
-  if (userResult.status === 'rejected') {
-    process.stderr.write(
-      `[DEBUG] userQuery reason: ${(userResult.reason as Error)?.message ?? userResult.reason}\n`
-    );
-  }
-  if (orgResult.status === 'rejected') {
-    process.stderr.write(
-      `[DEBUG] orgQuery reason: ${(orgResult.reason as Error)?.message ?? orgResult.reason}\n`
-    );
-  }
 
   const projects: ProjectNode[] = [];
   if (userResult.status === 'fulfilled') {
@@ -71,6 +57,5 @@ export async function findProjectByOwner(
   if (orgResult.status === 'fulfilled') {
     projects.push(...(orgResult.value.organization?.projectsV2.nodes ?? []));
   }
-  process.stderr.write(`[DEBUG] findProjectByOwner returning ${projects.length} projects\n`);
   return projects;
 }
