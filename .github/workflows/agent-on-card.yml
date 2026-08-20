@@ -77,9 +77,11 @@ on:
           `packages/` get copied into the workspace at runtime. Defaults
           to this repo. Override only if you maintain a fork of the
           boilerplate and want the agent to pull actions from there.
-          Note: `${{ github.repository }}` resolves to the *caller*'s
-          repo when this workflow is used as a reusable workflow, so it
-          is NOT a safe default — that's why this input exists.
+          This input is required because `github.repository` resolves
+          to the *caller*'s repo when this workflow is used as a
+          reusable workflow, which would otherwise clone the consumer
+          repo (with no local actions) and break the local-action
+          references further down.
         type: string
         required: false
         default: 'LucasBFerraz/agent-boilerplate'
