@@ -135,7 +135,12 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.skip != 'true' && needs.resolve.outputs.issue_number != ''
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout_minutes }}
+    # `inputs.*` are only populated when the workflow is invoked via
+    # `workflow_call`. When this workflow runs as a standalone triggered
+    # by `issue_comment`, every `inputs.X` is empty — which makes
+    # `timeout-minutes: ''` a hard error ("Unexpected value ''"). Fall
+    # back to the declared defaults so both invocation paths work.
+    timeout-minutes: ${{ inputs.timeout_minutes || 20 }}
     steps:
       - name: Check out boilerplate
         uses: actions/checkout@v4
@@ -171,6 +176,7 @@ jobs:
         shell: bash
         env:
           ISSUE_NUMBER: ${{ needs.resolve.outputs.issue_number }}
+          BASE_REF: ${{ inputs.base_ref || 'main' }}
         run: |
           set -euo pipefail
           branch_name="$(git ls-remote --heads origin "agent/issue-${ISSUE_NUMBER}-*" \
@@ -179,8 +185,8 @@ jobs:
             git fetch origin "${branch_name}" --depth=1
             git checkout "${branch_name}"
           else
-            git fetch origin "${{ inputs.base_ref }}" --depth=1
-            git checkout -b "agent/issue-${ISSUE_NUMBER}-mention" "origin/${{ inputs.base_ref }}"
+            git fetch origin "${BASE_REF}" --depth=1
+            git checkout -b "agent/issue-${ISSUE_NUMBER}-mention" "origin/${BASE_REF}"
           fi
           echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "${GITHUB_OUTPUT}"
 
@@ -212,9 +218,9 @@ jobs:
         id: agent
         uses: ./.github/actions/agent-runner
         with:
-          agent: ${{ inputs.agent }}
+          agent: ${{ inputs.agent || 'mavis' }}
           prompt_file: ${{ steps.prompt.outputs.prompt_file }}
-          timeout_minutes: ${{ inputs.timeout_minutes }}
+          timeout_minutes: ${{ inputs.timeout_minutes || 20 }}
           agent_token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
 
       - name: Reply on the thread
@@ -222,8 +228,8 @@ jobs:
         uses: ./.github/actions/kanban-sync
         with:
           issue_number: ${{ needs.resolve.outputs.issue_number }}
-          project_title: ${{ inputs.project_title }}
-          project_owner: ${{ inputs.project_owner }}
+          project_title: ${{ inputs.project_title || '' }}
+          project_owner: ${{ inputs.project_owner || '' }}
           target_status: 'In Progress'
           token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           comment: |
