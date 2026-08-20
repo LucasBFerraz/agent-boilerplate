@@ -190,7 +190,13 @@ runs:
         # `--force-with-lease` to push on top of the previous
         # run's remote branch.
         set +e
-        remote_ref="$(git ls-remote --heads origin "${branch}" 2>/dev/null | head -n1)"
+        # Echo the origin URL and any error from ls-remote to stderr
+        # so we can debug from the run log if detection silently fails.
+        echo "::debug::ls-remote origin URL: $(git config --get remote.origin.url 2>&1)"
+        remote_ref="$(git ls-remote --heads origin "${branch}" 2>&1 | tee /tmp/.ls-remote.log | head -n1)"
+        if [[ -z "${remote_ref}" && -s /tmp/.ls-remote.log ]]; then
+          echo "::debug::ls-remote stderr/stdout: $(cat /tmp/.ls-remote.log)"
+        fi
         set -e
         if [[ -n "${remote_ref}" ]]; then
           echo "Reusing existing remote branch ${branch} as the base for this run."
