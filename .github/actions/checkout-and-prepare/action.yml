@@ -54,6 +54,19 @@ runs:
       with:
         token: ${{ inputs.token }}
         fetch-depth: 1
+        # The reusable `agent-on-card` workflow copies the boilerplate's
+        # `.github/actions/*` into the workspace root BEFORE this step
+        # runs, so kanban-sync and kanban-read-card can resolve. Without
+        # `clean: false`, actions/checkout's default `git clean -ffdx`
+        # would wipe those copies and any later step that references a
+        # local action (e.g. agent-runner) would fail with
+        # "Can't find action.yml". Setting `clean: false` preserves
+        # untracked files in the workspace, which is exactly the
+        # boilerplate's actions — they are not part of the consumer's
+        # git tree, so they would otherwise be deleted. The consumer's
+        # own tracked files are still overwritten by the checkout as
+        # usual; only untracked files are preserved.
+        clean: false
 
     - name: Resolve issue context
       id: resolve
