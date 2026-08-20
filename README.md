@@ -87,6 +87,10 @@ Full setup: see [`docs/setup.md`](docs/setup.md).
     └── security.md
 ```
 
+## Message
+
+This project was created with :heart: by AI using the agent-boilerplate framework.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
