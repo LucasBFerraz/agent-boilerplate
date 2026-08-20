@@ -37,6 +37,23 @@ on:
         type: string
         required: false
         default: 'main'
+      boilerplate_repository:
+        description: >-
+          Source repository (org/repo) whose `.github/actions/` and
+          `packages/` get copied into the workspace at runtime. Defaults
+          to this repo. Override only if you maintain a fork of the
+          boilerplate and want the agent to pull actions from there.
+        type: string
+        required: false
+        default: 'LucasBFerraz/agent-boilerplate'
+      boilerplate_ref:
+        description: >-
+          Git ref (branch / tag / SHA) to check out from
+          `boilerplate_repository`. Defaults to the same ref that
+          triggered this workflow, falling back to `master`.
+        type: string
+        required: false
+        default: ''
       timeout_minutes:
         type: number
         required: false
@@ -145,7 +162,8 @@ jobs:
       - name: Check out boilerplate
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
+          repository: ${{ inputs.boilerplate_repository }}
+          ref: ${{ inputs.boilerplate_ref || github.ref }}
           path: ./.boilerplate-src
 
       - name: Copy boilerplate into workspace
