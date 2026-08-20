@@ -352,9 +352,19 @@ runs:
                 '{pr_url: $pr_url, summary: $summary, files_changed: $files_changed}' \
                 > "${RESULT_FILE}"
             else
+              # The agent ran but never opened (or printed) a PR URL.
+              # Whatever opencode's exit code was, the deliverable we
+              # promised the caller (a PR with the agent's work) is
+              # missing. Treating this as success silently — which is
+              # what `exit $rc` did when rc=0 — makes the workflow
+              # report "success" while the card stays in "In Progress"
+              # forever, because `Move card to In Review` skips on
+              # `pr_url != ''`. Always exit 1 here so the "Report
+              # failure on the card" step posts the error and the
+              # operator notices.
               echo "::error::opencode exited with ${rc} and no PR URL was found in the log:" >&2
               cat "${RESULT_FILE}.log" >&2
-              exit $rc
+              exit 1
             fi
             ;;
           mavis|*)

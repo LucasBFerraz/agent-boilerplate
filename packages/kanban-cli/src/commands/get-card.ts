@@ -71,6 +71,16 @@ function buildPrompt(input: {
     'If not present, infer a sensible Definition of Done from the title and description and list it in your PR description.'
   );
   parts.push('');
+  parts.push('## Required deliverable');
+  parts.push(
+    'You MUST end this run with a Pull Request open against the base branch. That means: ' +
+    '(1) make the code changes on the prepared branch, ' +
+    '(2) `git add` + `git commit` with a Conventional Commits subject referencing the issue (e.g. `docs: create empty readme (#2)`), ' +
+    '(3) `git push` the branch, and ' +
+    '(4) `gh pr create --base <base_ref> --head <branch> --title ... --body ...` to open the PR. ' +
+    'Just editing files without committing is NOT a finished task — the workflow will report a failure if no PR URL appears in your output.'
+  );
+  parts.push('');
   parts.push('## Operating contract');
   parts.push('You are running in a GitHub Actions sandbox. See `AGENTS.md` at the repo root for the full rules.');
   return parts.join('\n');

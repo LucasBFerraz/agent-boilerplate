@@ -106,6 +106,16 @@ runs:
           rm -rf /tmp/.boilerplate-github-backup
         fi
 
+    - name: Restore boilerplate's .github/ from /tmp
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -d /tmp/.boilerplate-github-backup ]; then
+          mkdir -p ./.github
+          cp -R /tmp/.boilerplate-github-backup/. ./.github/
+          rm -rf /tmp/.boilerplate-github-backup
+        fi
+
     - name: Resolve issue context
       id: resolve
       shell: bash
