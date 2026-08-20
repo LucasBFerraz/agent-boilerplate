@@ -49,24 +49,49 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    # The reusable `agent-on-card` workflow copies the boilerplate's
+    # `.github/actions/*` into the workspace root BEFORE this action
+    # runs, so `kanban-sync` and `kanban-read-card` can resolve as
+    # `uses: ./.github/actions/X`. When this action then runs
+    # `actions/checkout@v4` against the consumer's repo, the checkout
+    # unconditionally deletes the workspace contents because the
+    # boilerplate copy did not leave a `.git/` directory that matches
+    # the consumer's fetch URL (see actions/checkout's
+    # `prepareExistingDirectory` in `git-directory-helper.ts` — the
+    # `remove = true` branch is taken when `.git/` is missing or the
+    # URL mismatches, and `clean: false` only suppresses the
+    # subsequent `git clean -ffdx`, not that initial deletion).
+    #
+    # That would wipe the boilerplate's actions, and the later
+    # `agent-runner` step would explode with "Can't find action.yml
+    # under ./.github/actions/agent-runner". Workaround: save the
+    # `.github/` tree to /tmp before the checkout and restore it
+    # after. /tmp is shared across steps in the same job, so the
+    # backup survives.
+    - name: Save boilerplate's .github/ to /tmp
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -d ./.github ]; then
+          rm -rf /tmp/.boilerplate-github-backup
+          cp -R ./.github /tmp/.boilerplate-github-backup
+        fi
+
     - name: Check out repository
       uses: actions/checkout@v4
       with:
         token: ${{ inputs.token }}
         fetch-depth: 1
-        # The reusable `agent-on-card` workflow copies the boilerplate's
-        # `.github/actions/*` into the workspace root BEFORE this step
-        # runs, so kanban-sync and kanban-read-card can resolve. Without
-        # `clean: false`, actions/checkout's default `git clean -ffdx`
-        # would wipe those copies and any later step that references a
-        # local action (e.g. agent-runner) would fail with
-        # "Can't find action.yml". Setting `clean: false` preserves
-        # untracked files in the workspace, which is exactly the
-        # boilerplate's actions — they are not part of the consumer's
-        # git tree, so they would otherwise be deleted. The consumer's
-        # own tracked files are still overwritten by the checkout as
-        # usual; only untracked files are preserved.
-        clean: false
+
+    - name: Restore boilerplate's .github/ from /tmp
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -d /tmp/.boilerplate-github-backup ]; then
+          mkdir -p ./.github
+          cp -R /tmp/.boilerplate-github-backup/. ./.github/
+          rm -rf /tmp/.boilerplate-github-backup
+        fi
 
     - name: Resolve issue context
       id: resolve
