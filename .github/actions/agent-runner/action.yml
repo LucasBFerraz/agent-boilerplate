@@ -67,6 +67,14 @@ inputs:
       GITHUB_WORKSPACE/agent-result.json.
     required: false
     default: ''
+  base_ref:
+    description: >-
+      Base ref the agent branched from. Used by the opencode recovery
+      path to compute files_changed via
+      `git diff origin/${base_ref}...HEAD` and to scope the
+      summary to commits added on top of the base. Default: main.
+    required: false
+    default: 'main'
 
 outputs:
   pr_url:
@@ -199,6 +207,9 @@ runs:
         AGENT_TOKEN: ${{ inputs.agent_token }}
         GH_TOKEN: ${{ inputs.agent_token }}
         GH_REPO: ${{ github.repository }}
+        # Used by the opencode recovery path to compute files_changed
+        # and to scope the summary to commits added on top of the base.
+        BASE_REF: ${{ inputs.base_ref }}
         # NOTE: we deliberately do NOT set `PATH` here. The `PATH`
         # env var is protected by GitHub Actions — assigning to it in
         # step env: clobbers the inherited PATH (the `${PATH}`
@@ -285,17 +296,59 @@ runs:
             # PR URL out of the log and synthesizing the JSON contract
             # that the rest of this action expects. Only treat the run
             # as a failure if we couldn't find a PR URL.
+            #
+            # When the agent actually committed (the common case), we
+            # additionally pull a real summary and a real file list
+            # from git instead of inventing placeholders. The agent
+            # branch was forked from origin/${BASE_REF} by
+            # checkout-and-prepare, so `git diff origin/${BASE_REF}...
+            # HEAD` enumerates exactly the files the agent touched.
+            # The latest commit body becomes the Kanban summary —
+            # AGENTS.md mandates Conventional Commits referencing the
+            # issue, so the subject is a meaningful one-liner.
             pr_url="$(grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+' "${RESULT_FILE}.log" | head -n1 || true)"
             if [[ -n "${pr_url}" ]]; then
               echo "::notice::opencode did not write ${RESULT_FILE}; recovered pr_url=${pr_url} from log (rc=${rc})"
-              files_changed_count="$(grep -cE '^(diff --git|create mode|delete mode|new file)' "${RESULT_FILE}.log" || true)"
-              if [[ -z "${files_changed_count}" ]]; then
-                files_changed_count=0
+
+              base_ref="${BASE_REF:-main}"
+
+              # Files the agent changed. `git diff` operates on the
+              # two commits directly, so it works under the shallow
+              # clone that checkout-and-prepare sets up
+              # (fetch-depth: 1 means there is no full history to
+              # walk). An empty result means the agent didn't commit
+              # anything (or the base ref is wrong) — we don't
+              # fabricate a summary from base history in that case.
+              set +e
+              base_files="$(git diff --name-only "origin/${base_ref}...HEAD" 2>/dev/null | sort -u)"
+              set -e
+
+              if [[ -n "${base_files}" ]]; then
+                # Newline list -> JSON array of non-empty strings.
+                files_changed_json="$(printf '%s\n' "${base_files}" \
+                  | jq -R . | jq -s 'map(select(length > 0))')"
+
+                # Latest commit body, trimmed and clamped to keep
+                # the Kanban comment readable. AGENTS.md mandates
+                # Conventional Commits referencing the issue, so
+                # the subject is a meaningful one-liner.
+                commit_body="$(git log -1 --pretty=%B HEAD 2>/dev/null \
+                  | sed -e '/^[[:space:]]*$/d' \
+                  | head -c 500 || true)"
+                if [[ -n "${commit_body// }" ]]; then
+                  summary="${commit_body}"
+                else
+                  summary="opencode run recovered from log (rc=${rc})"
+                fi
+              else
+                files_changed_json="[]"
+                summary="opencode run recovered from log — no diff vs ${base_ref} (rc=${rc})"
               fi
+
               jq -n \
                 --arg pr_url "${pr_url}" \
-                --arg summary "opencode run recovered from log (rc=${rc})" \
-                --argjson files_changed "[]" \
+                --arg summary "${summary}" \
+                --argjson files_changed "${files_changed_json}" \
                 '{pr_url: $pr_url, summary: $summary, files_changed: $files_changed}' \
                 > "${RESULT_FILE}"
             else

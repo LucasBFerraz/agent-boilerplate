@@ -233,6 +233,10 @@ jobs:
           timeout_minutes: ${{ inputs.timeout_minutes }}
           agent_token: ${{ secrets.agent_gh_token || secrets.default_github_token }}
           api_key: ${{ secrets.agent_api_key }}
+          # Forward the base ref so the opencode recovery path can
+          # compute files_changed from `git diff origin/${base_ref}...
+          # HEAD` and scope the summary to commits added on top.
+          base_ref: ${{ inputs.base_ref }}
 
       - name: Move card to In Review
         if: always() && steps.agent.outputs.pr_url != ''
