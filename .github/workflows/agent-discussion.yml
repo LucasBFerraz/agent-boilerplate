@@ -80,8 +80,23 @@ jobs:
         id: get
         env:
           EVENT_NAME: ${{ github.event_name }}
-          EVENT_PAYLOAD_PATH: ${{ github.event_path }}
-          BOT_MENTION: ${{ inputs.bot_mention }}
+          # Read the comment + issue fields straight from the
+          # github.event context. We previously read them from the
+          # payload file via `jq ... "${EVENT_PAYLOAD_PATH}"`, but
+          # when this workflow runs as a reusable workflow and is
+          # triggered directly by `issue_comment` (instead of being
+          # called via `uses:` from a consumer), ${{ github.event_path }}
+          # arrives empty in the env, so jq fails with
+          # "Could not open file". The context fields below are
+          # populated correctly in every invocation scenario.
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          SENDER: ${{ github.event.comment.user.login }}
+          SENDER_TYPE: ${{ github.event.comment.user.type }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          # bot_mention is a workflow_call input. When this workflow
+          # is triggered directly via `issue_comment`, inputs are not
+          # available, so fall back to the canonical default.
+          BOT_MENTION: ${{ inputs.bot_mention || '@agent-bot' }}
         run: |
           set -euo pipefail
           if [[ "${EVENT_NAME}" != "issue_comment" ]]; then
@@ -89,9 +104,9 @@ jobs:
             exit 0
           fi
 
-          comment_body="$(jq -r '.comment.body' "${EVENT_PAYLOAD_PATH}")"
-          sender="$(jq -r '.comment.user.login' "${EVENT_PAYLOAD_PATH}")"
-          sender_type="$(jq -r '.comment.user.type // "User"' "${EVENT_PAYLOAD_PATH}")"
+          comment_body="${COMMENT_BODY:-}"
+          sender="${SENDER:-}"
+          sender_type="${SENDER_TYPE:-User}"
 
           # Don't reply to ourselves
           if [[ "${sender_type}" == "Bot" || "${sender}" == *"[bot]" ]]; then
@@ -105,7 +120,12 @@ jobs:
             exit 0
           fi
 
-          issue_number="$(jq -r '.issue.number' "${EVENT_PAYLOAD_PATH}")"
+          issue_number="${ISSUE_NUMBER:-}"
+          if [[ -z "${issue_number}" ]]; then
+            echo "::error::Could not resolve issue_number for event ${EVENT_NAME}" >&2
+            exit 1
+          fi
+
           echo "issue_number=${issue_number}" >> "${GITHUB_OUTPUT}"
           echo "comment_body=${comment_body}" >> "${GITHUB_OUTPUT}"
           echo "skip=false" >> "${GITHUB_OUTPUT}"
