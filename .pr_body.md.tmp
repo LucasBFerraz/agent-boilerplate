@@ -1,0 +1,42 @@
+## What
+
+The three reusable workflows (`agent-on-card`, `agent-discussion`, `agent-scheduled-triage`) all had a self-foot-gun:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    repository: ${{ github.repository }}
+    path: ./.boilerplate-src
+```
+
+When the workflow is invoked via `uses:` from a consumer repo, `github.repository` resolves to the **caller's** repo, not the host repo. So instead of cloning this boilerplate to copy its `.github/actions/` + `packages/` into the consumer's workspace, the workflow clones the consumer repo — which doesn't have those files. The next step that references `./.github/actions/kanban-sync` (or any other local action) then explodes with:
+
+> Can't find 'action.yml', 'action.yaml' or 'Dockerfile' under '.github/actions/kanban-sync'. Did you forget to run actions/checkout before running your local action?
+
+This is exactly the error the user hit when wiring the boilerplate into a second repo (`ZarrefCorp/agente-teste-pcrl`) with just the thin `agent.yml` + tokens + label.
+
+## Fix
+
+- Add two new `workflow_call` inputs: `boilerplate_repository` (default `LucasBFerraz/agent-boilerplate`) and `boilerplate_ref` (default = `github.ref`, falls back to `master`).
+- Use them in the `actions/checkout` step that brings the boilerplate's actions and CLI into the consumer's workspace.
+- Consumers who fork the boilerplate can override `boilerplate_repository`. Everyone else can ignore the new inputs — defaults are sane.
+
+## Scope
+
+Three workflow files, all the same pattern:
+- `.github/workflows/agent-on-card.yml`
+- `.github/workflows/agent-discussion.yml`
+- `.github/workflows/agent-scheduled-triage.yml`
+
+## Verification
+
+**Before** the fix: on any consumer repo, the `Run agent on issue N` job fails immediately at the local `./.github/actions/kanban-sync` step with the error quoted above.
+
+**After** the fix:
+1. Re-trigger the `on-card` job from the consumer repo by re-applying the `agent:ready` label on the same issue.
+2. Workflow should now successfully clone the boilerplate into `./.boilerplate-src`, copy `.github/` and `packages/` into the workspace, and proceed to the kanban / checkout / agent steps.
+
+## Out of scope / not touched
+
+- `.github/workflows/agent.yml` (the boilerplate's own internal trigger) had a stale uncommitted change in the working tree from a prior session — left as-is.
+- The line in `agent-on-card.yml` that uses `github.server_url/${{ github.repository }}` for the failure-comment URL is **correct** as-is — there `github.repository` should be the consumer's repo, and the error URL must point at the consumer's Actions tab.
