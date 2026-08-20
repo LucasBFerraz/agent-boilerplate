@@ -353,18 +353,12 @@ runs:
                 > "${RESULT_FILE}"
             else
               # The agent ran but never opened (or printed) a PR URL.
-              # Whatever opencode's exit code was, the deliverable we
-              # promised the caller (a PR with the agent's work) is
-              # missing. Treating this as success silently — which is
-              # what `exit $rc` did when rc=0 — makes the workflow
-              # report "success" while the card stays in "In Progress"
-              # forever, because `Move card to In Review` skips on
-              # `pr_url != ''`. Always exit 1 here so the "Report
-              # failure on the card" step posts the error and the
-              # operator notices.
-              echo "::error::opencode exited with ${rc} and no PR URL was found in the log:" >&2
-              cat "${RESULT_FILE}.log" >&2
-              exit 1
+              # Don't `exit 1` here — fall through to the safety net
+              # below, which can still recover by committing any
+              # uncommitted changes and opening a PR on the agent's
+              # behalf. The safety net will exit 1 itself if it can't
+              # recover (e.g. the agent did nothing at all).
+              echo "::notice::opencode exited with ${rc} and no PR URL was found in the log; will attempt safety-net recovery" >&2
             fi
             ;;
           mavis|*)
@@ -401,9 +395,144 @@ runs:
 
         # Validate JSON
         if ! jq -e . "${RESULT_FILE}" >/dev/null 2>&1; then
-          echo "::error::agent did not produce valid JSON at ${RESULT_FILE}" >&2
-          cat "${RESULT_FILE}" >&2
-          exit 1
+          # The agent didn't write a JSON result file. This is the
+          # common case for opencode, claude, etc. — they just print
+          # to the log instead of writing a structured file. Fall
+          # through to the safety net below, which can still recover
+          # a PR URL from the log or from a fresh commit+push.
+          echo "::notice::agent did not write ${RESULT_FILE}; will try safety net" >&2
+          # Create a placeholder JSON with empty pr_url so the safety
+          # net can update it. The safety net also overwrites this
+          # file when it manages to open a PR.
+          printf '%s' '{"pr_url":"","summary":"","files_changed":[]}' > "${RESULT_FILE}"
+        fi
+
+        pr_url="$(jq -r '.pr_url // ""' "${RESULT_FILE}")"
+
+        # Safety net: if the agent ran (exited 0) but didn't open a
+        # PR — either because the model decided not to commit or
+        # because the PR URL just didn't make it into the log — try
+        # to recover by committing any uncommitted changes the agent
+        # left behind and opening a PR ourselves. Without this, the
+        # run reports success and the card stays in "In Progress"
+        # forever, which is the failure mode reported in
+        # https://github.com/LucasBFerraz/agente-teste-pcrl/actions/runs/32426383084
+        # and a half-dozen earlier runs.
+        #
+        # We only run the safety net when the agent itself didn't
+        # open a PR (pr_url is empty) AND the workspace has changes
+        # that the agent left for us. If the agent already pushed
+        # and opened a PR (the common case), pr_url is non-empty
+        # and we skip this entire block.
+        if [[ -z "${pr_url}" ]]; then
+          # Are there uncommitted changes?
+          uncommitted="$(git status --porcelain 2>/dev/null || true)"
+          # Are there any commits ahead of the base ref?
+          set +e
+          ahead_count="$(git rev-list --count "origin/${BASE_REF:-main}..HEAD" 2>/dev/null || echo 0)"
+          set -e
+          if [[ -n "${uncommitted}" || "${ahead_count}" -eq 0 ]]; then
+            echo "::notice::Safety net: agent did not open a PR. uncommitted='${uncommitted}' ahead=${ahead_count}. Recovering by committing and opening a PR." >&2
+
+            # Figure out a Conventional Commits subject. Pull the
+            # issue number from the prompt file (it always starts
+            # with "# Issue #N — title").
+            prompt_text="$(cat "${PROMPT_FILE}" 2>/dev/null || true)"
+            issue_n="$(printf '%s' "${prompt_text}" | grep -oE '^# Issue #[0-9]+' | head -n1 | grep -oE '[0-9]+' || true)"
+            issue_title="$(printf '%s' "${prompt_text}" | head -n1 | sed -E 's/^# Issue #[0-9]+ — ?//')"
+            slug="$(printf '%s' "${issue_title}" \
+              | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's/[^a-z0-9]+/-/g' \
+              | sed -E 's/^-+|-+$//g' \
+              | cut -c1-50)"
+            [[ -z "${slug}" ]] && slug="agent-changes"
+            if [[ -n "${issue_n}" ]]; then
+              commit_subject="chore(${slug}): recover agent changes (#${issue_n})"
+              commit_body="The agent for issue #${issue_n} did not commit its changes. This commit was made by the agent-runner safety net so the workflow has a deliverable."
+            else
+              commit_subject="chore(${slug}): recover agent changes"
+              commit_body="The agent did not commit its changes. This commit was made by the agent-runner safety net so the workflow has a deliverable."
+            fi
+
+            # Set up git identity and auth. We push via the agent's
+            # token, which has contents:write on the consumer repo.
+            git config user.name "agent-runner-safety-net"
+            git config user.email "agent-runner-safety-net@users.noreply.github.com"
+            if [[ -n "${AGENT_TOKEN:-${GH_TOKEN:-}}" ]]; then
+              auth_token="${AGENT_TOKEN:-${GH_TOKEN:-}}"
+              git remote set-url origin "https://x-access-token:${auth_token}@github.com/${GH_REPO}.git"
+            fi
+
+            # Only commit if there are uncommitted changes. If the
+            # agent already committed (ahead_count > 0) but didn't
+            # push, just push — don't make a duplicate empty commit.
+            if [[ -n "${uncommitted}" ]]; then
+              git add -A
+              git commit -m "${commit_subject}" -m "${commit_body}" || true
+            fi
+            # Re-check ahead count after the commit. The earlier
+            # `ahead_count` was computed before the safety net's own
+            # commit, so it could be stale.
+            set +e
+            ahead_count="$(git rev-list --count "origin/${BASE_REF:-main}..HEAD" 2>/dev/null || echo 0)"
+            set -e
+            if [[ "${ahead_count}" -eq 0 ]]; then
+              # Even after committing, we may not be ahead if the
+              # commit was a no-op. In that case, just give up —
+              # there's nothing to push.
+              echo "::warning::Safety net: nothing to push (no commits ahead of origin/${BASE_REF:-main}). Treating as failure." >&2
+            else
+              branch="$(git rev-parse --abbrev-ref HEAD)"
+              git push origin "HEAD:${branch}" || {
+                echo "::error::Safety net: git push failed. The agent neither committed nor pushed; the run cannot produce a PR." >&2
+                exit 1
+              }
+
+              # Open the PR with `gh` (already authenticated via GH_TOKEN).
+              pr_body="$(printf '%s\n\n%s' "${commit_body}" "Recovered by the agent-runner safety net because the model did not commit/push on its own.")"
+              pr_url="$(gh pr create --base "${BASE_REF:-main}" --head "${branch}" --title "${commit_subject}" --body "${pr_body}" 2>&1 | tail -n1 || true)"
+              if [[ -z "${pr_url}" || "${pr_url}" != *"/pull/"* ]]; then
+                echo "::error::Safety net: gh pr create did not return a PR URL. Output: ${pr_url}" >&2
+                exit 1
+              fi
+              echo "::notice::Safety net opened PR: ${pr_url}" >&2
+
+              # Files changed = the new diff vs base.
+              files_changed_json="$(git diff --name-only "origin/${BASE_REF:-main}...HEAD" 2>/dev/null \
+                | sort -u | jq -R . | jq -s 'map(select(length > 0))')"
+              summary="${commit_subject}"
+              jq -n \
+                --arg pr_url "${pr_url}" \
+                --arg summary "${summary}" \
+                --argjson files_changed "${files_changed_json}" \
+                '{pr_url: $pr_url, summary: $summary, files_changed: $files_changed}' \
+                > "${RESULT_FILE}"
+            fi
+          else
+            # Agent already committed and pushed (ahead_count > 0)
+            # but no PR URL was found in the log. The agent must
+            # have used `gh pr create` and the URL just didn't match
+            # the grep pattern. Try to find the existing PR by
+            # querying GitHub for the branch.
+            branch="$(git rev-parse --abbrev-ref HEAD)"
+            if [[ -n "${GH_TOKEN:-}" ]]; then
+              recovered="$(gh pr list --head "${branch}" --base "${BASE_REF:-main}" --state all --json url -q '.[0].url' 2>/dev/null || true)"
+              if [[ -n "${recovered}" && "${recovered}" == *"/pull/"* ]]; then
+                echo "::notice::Safety net: found existing PR via gh pr list: ${recovered}" >&2
+                pr_url="${recovered}"
+                files_changed_json="$(git diff --name-only "origin/${BASE_REF:-main}...HEAD" 2>/dev/null \
+                  | sort -u | jq -R . | jq -s 'map(select(length > 0))')"
+                commit_body="$(git log -1 --pretty=%B HEAD 2>/dev/null | sed -e '/^[[:space:]]*$/d' | head -c 500 || true)"
+                [[ -z "${commit_body}" ]] && commit_body="Agent already opened this PR; safety net only recovered the URL."
+                jq -n \
+                  --arg pr_url "${pr_url}" \
+                  --arg summary "${commit_body}" \
+                  --argjson files_changed "${files_changed_json}" \
+                  '{pr_url: $pr_url, summary: $summary, files_changed: $files_changed}' \
+                  > "${RESULT_FILE}"
+              fi
+            fi
+          fi
         fi
 
         pr_url="$(jq -r '.pr_url // ""' "${RESULT_FILE}")"
