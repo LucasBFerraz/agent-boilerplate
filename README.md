@@ -87,6 +87,10 @@ Full setup: see [`docs/setup.md`](docs/setup.md).
     └── security.md
 ```
 
+## Status
+
+> This project is under active development.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
