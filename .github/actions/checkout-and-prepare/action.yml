@@ -65,17 +65,27 @@ runs:
     # That would wipe the boilerplate's actions, and the later
     # `agent-runner` step would explode with "Can't find action.yml
     # under ./.github/actions/agent-runner". Workaround: save the
-    # `.github/` tree to /tmp before the checkout and restore it
+    # boilerplate's tree to /tmp before the checkout and restore it
     # after. /tmp is shared across steps in the same job, so the
-    # backup survives.
-    - name: Save boilerplate's .github/ to /tmp
+    # backup survives. We also have to back up `packages/` and the
+    # root `package.json` / `package-lock.json` / `tsconfig.base.json`
+    # because the downstream `kanban-sync` and `kanban-read-card`
+    # steps (which run *after* the agent, e.g. "Move card to In
+    # Review") `npm ci && npm run build` against @boilerplate/kanban-cli
+    # and need those files to be present.
+    - name: Save boilerplate's tree to /tmp
       shell: bash
       run: |
         set -euo pipefail
-        if [ -d ./.github ]; then
-          rm -rf /tmp/.boilerplate-github-backup
-          cp -R ./.github /tmp/.boilerplate-github-backup
-        fi
+        rm -rf /tmp/.boilerplate-backup
+        mkdir -p /tmp/.boilerplate-backup
+        for path in ./.github ./packages ./package.json ./package-lock.json ./tsconfig.base.json; do
+          if [ -e "${path}" ]; then
+            dest="/tmp/.boilerplate-backup/${path#./}"
+            mkdir -p "$(dirname "${dest}")"
+            cp -R "${path}" "${dest}"
+          fi
+        done
 
     - name: Check out repository
       uses: actions/checkout@v4
@@ -83,34 +93,29 @@ runs:
         token: ${{ inputs.token }}
         fetch-depth: 1
 
-    - name: Restore boilerplate's .github/ from /tmp
+    - name: Restore boilerplate's tree from /tmp
       shell: bash
       run: |
         set -euo pipefail
-        if [ -d /tmp/.boilerplate-github-backup ]; then
-          mkdir -p ./.github
-          cp -R /tmp/.boilerplate-github-backup/. ./.github/
-          rm -rf /tmp/.boilerplate-github-backup
-        fi
-
-    - name: Restore boilerplate's .github/ from /tmp
-      shell: bash
-      run: |
-        set -euo pipefail
-        if [ -d /tmp/.boilerplate-github-backup ]; then
-          mkdir -p ./.github
-          cp -R /tmp/.boilerplate-github-backup/. ./.github/
-          rm -rf /tmp/.boilerplate-github-backup
-        fi
-
-    - name: Restore boilerplate's .github/ from /tmp
-      shell: bash
-      run: |
-        set -euo pipefail
-        if [ -d /tmp/.boilerplate-github-backup ]; then
-          mkdir -p ./.github
-          cp -R /tmp/.boilerplate-github-backup/. ./.github/
-          rm -rf /tmp/.boilerplate-github-backup
+        if [ -d /tmp/.boilerplate-backup ]; then
+          # Restore top-level files first so directory copies below
+          # don't accidentally nest them.
+          for path in package.json package-lock.json tsconfig.base.json; do
+            if [ -f "/tmp/.boilerplate-backup/${path}" ]; then
+              cp "/tmp/.boilerplate-backup/${path}" "./${path}"
+            fi
+          done
+          # Then the directories. We use `cp -Rn` so we don't
+          # overwrite consumer-owned files (e.g. .github/workflows/agent.yml)
+          # but DO fill in the gaps the consumer doesn't have
+          # (e.g. .github/actions/*).
+          for path in .github packages; do
+            if [ -d "/tmp/.boilerplate-backup/${path}" ]; then
+              mkdir -p "./${path}"
+              cp -Rn "/tmp/.boilerplate-backup/${path}/." "./${path}/"
+            fi
+          done
+          rm -rf /tmp/.boilerplate-backup
         fi
 
     - name: Resolve issue context
