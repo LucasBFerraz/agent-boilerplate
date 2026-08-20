@@ -483,19 +483,35 @@ runs:
               echo "::warning::Safety net: nothing to push (no commits ahead of origin/${BASE_REF:-main}). Treating as failure." >&2
             else
               branch="$(git rev-parse --abbrev-ref HEAD)"
-              git push origin "HEAD:${branch}" || {
+              # The safety net is the only thing that ever pushes to
+              # the agent's branch on a given run, but a *previous*
+              # run for the same issue may have left commits there
+              # (this is the same `agent/issue-N-...` branch that
+              # checkout-and-prepare cut from origin/${BASE_REF:-main}).
+              # Use `--force-with-lease` so we update the branch to
+              # our latest recovery commit and the workflow's PR
+              # (if any) reflects the new state, but the lease
+              # still protects us if someone else has pushed.
+              git push --force-with-lease origin "HEAD:${branch}" || {
                 echo "::error::Safety net: git push failed. The agent neither committed nor pushed; the run cannot produce a PR." >&2
                 exit 1
               }
 
-              # Open the PR with `gh` (already authenticated via GH_TOKEN).
-              pr_body="$(printf '%s\n\n%s' "${commit_body}" "Recovered by the agent-runner safety net because the model did not commit/push on its own.")"
-              pr_url="$(gh pr create --base "${BASE_REF:-main}" --head "${branch}" --title "${commit_subject}" --body "${pr_body}" 2>&1 | tail -n1 || true)"
+              # Look up an existing PR for this branch first —
+              # a previous run for the same issue may have already
+              # opened one. Updating that PR (by force-pushing the
+              # branch) is the right behavior; creating a duplicate
+              # via `gh pr create` would fail with "already exists".
+              pr_url="$(gh pr list --head "${branch}" --base "${BASE_REF:-main}" --state all --json url -q '.[0].url' 2>/dev/null || true)"
               if [[ -z "${pr_url}" || "${pr_url}" != *"/pull/"* ]]; then
-                echo "::error::Safety net: gh pr create did not return a PR URL. Output: ${pr_url}" >&2
+                pr_body="$(printf '%s\n\n%s' "${commit_body}" "Recovered by the agent-runner safety net because the model did not commit/push on its own.")"
+                pr_url="$(gh pr create --base "${BASE_REF:-main}" --head "${branch}" --title "${commit_subject}" --body "${pr_body}" 2>&1 | tail -n1 || true)"
+              fi
+              if [[ -z "${pr_url}" || "${pr_url}" != *"/pull/"* ]]; then
+                echo "::error::Safety net: could not find or open a PR for branch ${branch}. Output: ${pr_url}" >&2
                 exit 1
               fi
-              echo "::notice::Safety net opened PR: ${pr_url}" >&2
+              echo "::notice::Safety net PR: ${pr_url}" >&2
 
               # Files changed = the new diff vs base.
               files_changed_json="$(git diff --name-only "origin/${BASE_REF:-main}...HEAD" 2>/dev/null \
