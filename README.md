@@ -90,3 +90,7 @@ Full setup: see [`docs/setup.md`](docs/setup.md).
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+
+---
+
+> **Test:** This message was added by an AI agent as part of Issue #11.
