@@ -79,11 +79,17 @@ on:
       boilerplate_ref:
         description: >-
           Git ref (branch / tag / SHA) to check out from
-          `boilerplate_repository`. Defaults to the same ref that
-          triggered this workflow, falling back to `master`.
+          `boilerplate_repository`. Defaults to `master`, which is this
+          repo's default branch. The previous default of `github.ref`
+          silently broke when the consumer repo's default branch was
+          not `master` (e.g. `main`) — actions/checkout would then
+          fetch `refs/heads/main` from the boilerplate repo, which
+          doesn't exist, and the run died with "couldn't find remote
+          ref refs/heads/main". Override this input if you maintain a
+          fork on a different default branch.
         type: string
         required: false
-        default: ''
+        default: 'master'
     secrets:
       agent_gh_token:
         required: true
