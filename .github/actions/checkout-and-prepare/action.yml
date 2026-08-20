@@ -177,9 +177,30 @@ runs:
       run: |
         set -euo pipefail
         git fetch origin "${BASE_REF}" --depth=1
-        git checkout -b "${BRANCH_PREFIX}/issue-${ISSUE_NUMBER:-na}-${SLUG}" "origin/${BASE_REF}"
-
         branch="${BRANCH_PREFIX}/issue-${ISSUE_NUMBER:-na}-${SLUG}"
+
+        # If a previous run for this same issue already pushed to
+        # `origin/${branch}`, reuse it as the base so the work from
+        # the previous run is preserved. Otherwise create a fresh
+        # branch from origin/${BASE_REF}. Without this check, every
+        # re-run would start from a clean main and the agent's
+        # previous commits (including any boilerplate state copied
+        # by the workflow) would be silently dropped — the agent
+        # then has to redo the setup, and the safety net needs
+        # `--force-with-lease` to push on top of the previous
+        # run's remote branch.
+        set +e
+        remote_ref="$(git ls-remote --heads origin "${branch}" 2>/dev/null | head -n1)"
+        set -e
+        if [[ -n "${remote_ref}" ]]; then
+          echo "Reusing existing remote branch ${branch} as the base for this run."
+          git fetch --depth=1 origin "${branch}"
+          git checkout -B "${branch}" "origin/${branch}"
+        else
+          echo "Creating new branch ${branch} from origin/${BASE_REF}."
+          git checkout -B "${branch}" "origin/${BASE_REF}"
+        fi
+
         echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
         echo "base_ref=${BASE_REF}" >> "${GITHUB_OUTPUT}"
         echo "issue_number=${ISSUE_NUMBER}" >> "${GITHUB_OUTPUT}"
