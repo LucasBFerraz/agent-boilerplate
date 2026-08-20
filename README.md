@@ -87,6 +87,10 @@ Full setup: see [`docs/setup.md`](docs/setup.md).
     └── security.md
 ```
 
+## Message
+
+Hello from the AI agent — this message was added automatically to verify the agent pipeline works end-to-end.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
